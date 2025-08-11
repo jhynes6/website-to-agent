@@ -1,6 +1,18 @@
 streamlit==1.43.2
-firecrawl==1.14.1
 openai-agents==0.0.4
 openai==1.66.3
 pydantic==2.10.6
 python-dotenv==1.0.1
+
+# Essential dependencies missing from the original docker requirements
+aiohttp==3.10.12
+beautifulsoup4==4.12.3
+crawl4ai==0.4.24
+requests==2.32.3
+httpx==0.28.1
+pandas==2.2.3
+numpy==2.2.4
+nest-asyncio==1.6.0
+tqdm==4.67.1
+tenacity==9.0.0
+typing-extensions==4.12.2
