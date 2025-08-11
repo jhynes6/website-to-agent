@@ -40,23 +40,93 @@ def sanitize_markdown_content(content):
         # Convert to string if not already
         content = str(content)
         
-        # Remove HTML tags that could cause issues
-        content = re.sub(r'<[^>]+>', '', content)
+        # AGGRESSIVE sanitization to prevent ReactMarkdown crashes
         
-        # Remove control characters that could break parsing
-        content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', content)
+        # Remove ALL HTML-like tags and directives completely
+        content = re.sub(r'<[^>]*>', ' ', content)
+        content = re.sub(r'&[a-zA-Z0-9#]+;', ' ', content)  # HTML entities
         
-        # Escape problematic characters
-        content = content.replace('\\', '\\\\')
+        # Remove problematic markdown directives that break ReactMarkdown
+        content = re.sub(r':::[a-zA-Z0-9-_]+.*?:::', ' ', content, flags=re.DOTALL)  # Markdown directives
+        content = re.sub(r'---+', ' ', content)  # Horizontal rules
+        content = re.sub(r'\{[^}]*\}', ' ', content)  # Curly braces (attributes)
+        content = re.sub(r'\[[^\]]*\]\([^)]*\)', ' ', content)  # Links
+        
+        # Remove ALL control characters and non-printable characters
+        content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', ' ', content)
+        
+        # Remove problematic punctuation that can break parsing
+        content = re.sub(r'[<>{}\\|`~]', ' ', content)
+        
+        # Remove multiple consecutive special characters
+        content = re.sub(r'[^\w\s.,!?()-]{2,}', ' ', content)
+        
+        # Normalize whitespace
+        content = re.sub(r'\s+', ' ', content)
+        content = content.strip()
         
         # Limit length to prevent overwhelming the UI
-        if len(content) > 10000:
-            content = content[:10000] + "... (truncated)"
+        if len(content) > 5000:
+            content = content[:5000] + "... (truncated)"
+        
+        # Final safety check - if it still contains problematic patterns, return plain text
+        if any(char in content for char in ['<', '>', '{', '}', '\\', '`', '~']):
+            # Strip everything except basic alphanumeric and common punctuation
+            content = re.sub(r'[^\w\s.,!?():-]', ' ', content)
+            content = re.sub(r'\s+', ' ', content).strip()
             
         return content
     except Exception as e:
         log_error_with_traceback("markdown sanitization failed", e)
-        return str(content)[:1000] if content else ""
+        # Emergency fallback - return only alphanumeric content
+        try:
+            safe_content = re.sub(r'[^\w\s.,!?]', ' ', str(content))
+            return safe_content[:1000] if safe_content else "Error: content could not be displayed"
+        except:
+            return "Error: content could not be displayed"
+
+def safe_markdown_display(content, fallback_to_text=True):
+    """Safely display markdown content with automatic fallback to text"""
+    try:
+        safe_content = sanitize_markdown_content(content)
+        if safe_content and len(safe_content.strip()) > 0:
+            st.markdown(safe_content)
+            return True
+        else:
+            if fallback_to_text:
+                st.text("(Empty or invalid content)")
+            return False
+    except Exception as e:
+        log_error_with_traceback("Safe markdown display failed", e)
+        if fallback_to_text:
+            # Ultimate fallback - display raw text
+            try:
+                plain_text = re.sub(r'[^\w\s.,!?()-]', ' ', str(content)[:500])
+                st.text(plain_text)
+            except:
+                st.text("Error: Content could not be displayed safely")
+        return False
+
+def safe_error_display(error_message):
+    """Safely display error messages without risking ReactMarkdown crashes"""
+    try:
+        # Aggressively sanitize error messages
+        safe_msg = re.sub(r'[^\w\s.,!?():-]', ' ', str(error_message))
+        safe_msg = re.sub(r'\s+', ' ', safe_msg).strip()[:500]
+        
+        # Use st.error with heavily sanitized content, fallback to warning/text if that fails
+        try:
+            st.error(f"❌ {safe_msg}")
+        except Exception as error_display_e:
+            log_error_with_traceback("st.error failed, using st.warning", error_display_e)
+            try:
+                st.warning(f"Error: {safe_msg}")
+            except Exception as warning_display_e:
+                log_error_with_traceback("st.warning failed, using st.text", warning_display_e)
+                st.text(f"ERROR: {safe_msg}")
+    except Exception as e:
+        log_error_with_traceback("safe_error_display completely failed", e)
+        st.text("ERROR: An error occurred but could not be displayed safely")
 
 def run_async_extraction(url, max_urls, use_full_text, result_queue, error_queue):
     """Run the async extraction in a separate thread"""
@@ -147,7 +217,7 @@ def run_workflow():
                 progress, message = progress_steps[step_idx]
                 progress_bar.progress(progress)
                 status_text.text(message)
-                logger.info(f"📊 PROGRESS UPDATE: {message}")
+                logger.info(f"�� PROGRESS UPDATE: {message}")
                 step_idx += 1
             
             time.sleep(2)
@@ -165,12 +235,12 @@ def run_workflow():
             error_msg = error_queue.get()
             safe_error_msg = sanitize_markdown_content(str(error_msg))
             logger.error(f"❌ EXTRACTION FAILED: {error_msg}")
-            st.error(f"❌ Extraction failed: {safe_error_msg}")
+            safe_error_display(f"❌ Extraction failed: {safe_error_msg}")
             return
         
         if result is None:
             logger.error("❌ NO RESULT: Extraction completed but returned no result")
-            st.error("❌ Extraction failed: No result returned")
+            safe_error_display("❌ Extraction failed: No result returned")
             return
             
         # Update progress
@@ -181,7 +251,7 @@ def run_workflow():
         # Validate extracted content
         if not result or not result.get('content'):
             logger.error("❌ VALIDATION: No content in extraction result")
-            st.error("❌ Failed to extract content from the website. Please check the URL and try again.")
+            safe_error_display("❌ Failed to extract content from the website. Please check the URL and try again.")
             return
         
         logger.info(f"✅ VALIDATION: Content extracted successfully ({len(result['content'])} chars)")
@@ -226,17 +296,17 @@ def run_workflow():
                 error_msg = knowledge_error_queue.get()
                 safe_error_msg = sanitize_markdown_content(str(error_msg))
                 logger.error(f"❌ KNOWLEDGE EXTRACTION FAILED: {error_msg}")
-                st.error(f"❌ Knowledge extraction failed: {safe_error_msg}")
+                safe_error_display(f"❌ Knowledge extraction failed: {safe_error_msg}")
                 return
             else:
                 logger.error("❌ KNOWLEDGE EXTRACTION TIMEOUT")
-                st.error("❌ Knowledge extraction timed out")
+                safe_error_display("❌ Knowledge extraction timed out")
                 return
                 
         except Exception as knowledge_e:
             log_error_with_traceback("Knowledge extraction failed", knowledge_e)
             safe_error_msg = sanitize_markdown_content(str(knowledge_e))
-            st.error(f"❌ Knowledge extraction failed: {safe_error_msg}")
+            safe_error_display(f"❌ Knowledge extraction failed: {safe_error_msg}")
             return
         
         # Step 3: Agent Creation  
@@ -275,17 +345,17 @@ def run_workflow():
                 error_msg = agent_error_queue.get()
                 safe_error_msg = sanitize_markdown_content(str(error_msg))
                 logger.error(f"❌ AGENT CREATION FAILED: {error_msg}")
-                st.error(f"❌ Agent creation failed: {safe_error_msg}")
+                safe_error_display(f"❌ Agent creation failed: {safe_error_msg}")
                 return
             else:
                 logger.error("❌ AGENT CREATION TIMEOUT")
-                st.error("❌ Agent creation timed out")
+                safe_error_display("❌ Agent creation timed out")
                 return
                 
         except Exception as agent_e:
             log_error_with_traceback("Agent creation failed", agent_e)
             safe_error_msg = sanitize_markdown_content(str(agent_e))
-            st.error(f"❌ Agent creation failed: {safe_error_msg}")
+            safe_error_display(f"❌ Agent creation failed: {safe_error_msg}")
             return
         
         # Complete!
@@ -306,7 +376,7 @@ def run_workflow():
     except Exception as e:
         log_error_with_traceback("Main workflow failed", e)
         safe_error_msg = sanitize_markdown_content(str(e))
-        st.error(f"❌ Error: {safe_error_msg}")
+        safe_error_display(f"❌ Error: {safe_error_msg}")
         logger.error(f"❌ WORKFLOW ERROR: {str(e)}")
         st.session_state.extraction_status = "failed"
 
@@ -378,16 +448,9 @@ def display_chat_interface():
     for i, message in enumerate(st.session_state.messages):
         try:
             with st.chat_message(message["role"]):
-                try:
-                    # Sanitize content to prevent markdown parsing errors
-                    safe_content = sanitize_markdown_content(message["content"])
-                    if safe_content:
-                        st.markdown(safe_content)
-                    else:
-                        st.text("(Empty message)")
-                except Exception as markdown_e:
-                    log_error_with_traceback(f"Chat message {i} markdown rendering failed", markdown_e)
-                    st.text(message["content"][:500])  # Fallback to plain text
+                # Use safe markdown display with automatic fallback
+                if not safe_markdown_display(message["content"], fallback_to_text=True):
+                    log_error_with_traceback(f"Chat message {i} could not be displayed safely", None)
         except Exception as msg_e:
             log_error_with_traceback(f"Chat message {i} display failed", msg_e)
 
@@ -400,12 +463,8 @@ def display_chat_interface():
         
         # Display user message
         with st.chat_message("user"):
-            try:
-                safe_prompt = sanitize_markdown_content(prompt)
-                st.markdown(safe_prompt)
-            except Exception as user_msg_e:
-                log_error_with_traceback("User prompt markdown error", user_msg_e)
-                st.text(prompt)
+            if not safe_markdown_display(prompt, fallback_to_text=True):
+                log_error_with_traceback("User prompt could not be displayed safely", None)
 
         # Generate and display assistant response
         with st.chat_message("assistant"):
@@ -419,17 +478,18 @@ def display_chat_interface():
                     logger.info("🔄 CHAT: Attempting streaming response")
                     streaming_response = get_streaming_response(st.session_state.domain_agent, prompt)
                     
-                    # Simulate streaming by showing chunks
+                    # Simulate streaming by showing chunks (use text to avoid markdown issues)
                     words = streaming_response.split()
                     for i, word in enumerate(words):
                         full_response += word + " "
-                        safe_response = sanitize_markdown_content(full_response + "▌")
-                        message_placeholder.markdown(safe_response)
+                        # Use text display for streaming to avoid markdown parsing during animation
+                        message_placeholder.text(full_response + "▌")
                         time.sleep(0.05)  # Simulate streaming delay
                     
                     # Final response without cursor
-                    safe_final_response = sanitize_markdown_content(full_response)
-                    message_placeholder.markdown(safe_final_response)
+                    message_placeholder.empty()
+                    if not safe_markdown_display(full_response, fallback_to_text=True):
+                        log_error_with_traceback("Final response could not be displayed safely", None)
                     logger.info("✅ CHAT: Streaming response completed successfully")
                     
                 except Exception as streaming_e:
@@ -437,17 +497,13 @@ def display_chat_interface():
                     try:
                         logger.info("🔄 CHAT FALLBACK: Using non-streaming response...")
                         full_response = get_non_streaming_response(st.session_state.domain_agent, prompt)
-                        try:
-                            safe_response = sanitize_markdown_content(full_response)
-                            st.markdown(safe_response)
-                        except Exception as markdown_error:
-                            log_error_with_traceback("Fallback markdown error", markdown_error)
-                            st.text(full_response)
+                        if not safe_markdown_display(full_response, fallback_to_text=True):
+                            log_error_with_traceback("Fallback response could not be displayed safely", None)
                         logger.info("✅ CHAT FALLBACK COMPLETE: Non-streaming response delivered")
                     except Exception as e2:
                         log_error_with_traceback("Chat fallback failed", e2)
                         safe_error_msg = sanitize_markdown_content(str(e2))
-                        st.error(f"Error generating response: {safe_error_msg}")
+                        safe_error_display(f"Error generating response: {safe_error_msg}")
                         full_response = "I apologize, but I encountered an error generating a response."
 
                 # Add assistant response to chat history
@@ -457,7 +513,7 @@ def display_chat_interface():
             except Exception as chat_e:
                 log_error_with_traceback("Chat interface critical error", chat_e)
                 safe_error_msg = sanitize_markdown_content(str(chat_e))
-                st.error(f"Critical chat error: {safe_error_msg}")
+                safe_error_display(f"Critical chat error: {safe_error_msg}")
 
 def run_app():
     """Main application entry point"""
@@ -512,7 +568,7 @@ def run_app():
         
     except Exception as app_e:
         log_error_with_traceback("Application critical error", app_e)
-        st.error("🚨 Critical application error occurred. Check server logs for details.")
+        safe_error_display("🚨 Critical application error occurred. Check server logs for details.")
 
 if __name__ == "__main__":
     logger.info("🎬 MAIN: Starting application from main")
