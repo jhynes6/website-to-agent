@@ -183,7 +183,7 @@ def run_workflow():
         status_text = st.empty()
         
         # Update progress
-        status_text.text("🌱 Step 1/3: Discovering website pages...")
+        status_text.text("Step 1/3: Discovering website pages...")  # No emojis
         logger.info("🌱 PROGRESS: Step 1/3 - Discovering pages")
         progress_bar.progress(10)
         
@@ -201,9 +201,9 @@ def run_workflow():
         
         # Monitor progress
         progress_steps = [
-            (20, "🔍 Step 1/3: Analyzing website structure..."),
-            (40, "📄 Step 1/3: Extracting content from pages..."),
-            (60, "✨ Step 1/3: Processing extracted content..."),
+            (20, "Step 1/3: Analyzing website structure..."),  # No emojis
+            (40, "Step 1/3: Extracting content from pages..."),  # No emojis  
+            (60, "Step 1/3: Processing extracted content..."),  # No emojis
         ]
         
         step_idx = 0
@@ -247,7 +247,7 @@ def run_workflow():
             
         # Update progress
         progress_bar.progress(80)
-        status_text.text("✅ Step 1/3: Content extraction completed!")
+        status_text.text("Step 1/3: Content extraction completed!")  # No emojis
         logger.info("✅ STEP 1 COMPLETE: Content extraction finished successfully")
         
         # Validate extracted content
@@ -262,7 +262,7 @@ def run_workflow():
         
         # Step 2: Knowledge Extraction
         progress_bar.progress(85)
-        status_text.text("🧠 Step 2/3: Extracting domain knowledge with AI...")
+        status_text.text("Step 2/3: Extracting domain knowledge with AI...")  # No emojis
         logger.info("🧠 STEP 2: Starting knowledge extraction")
         
         try:
@@ -314,7 +314,7 @@ def run_workflow():
         
         # Step 3: Agent Creation  
         progress_bar.progress(95)
-        status_text.text("🤖 Step 3/3: Creating your specialized agent...")
+        status_text.text("Step 3/3: Creating your specialized agent...")  # No emojis
         logger.info("🤖 STEP 3: Starting agent creation")
         
         try:
@@ -389,7 +389,8 @@ def display_sidebar():
     logger.info("📋 UI: Rendering sidebar")
     
     with st.sidebar:
-        st.header("Create your agent")
+        # EMERGENCY: Replace st.header() with st.text() to avoid ReactMarkdown
+        st.text("CREATE YOUR AGENT")  # No markdown processing
         
         # URL input
         url = st.text_input(
@@ -543,10 +544,10 @@ def run_app():
             st.session_state.domain_agent = None
             logger.info("📝 INIT: Domain agent initialized")
         
-        # Main header
-        st.title("The Laura Natalia Gonzalez Chat Bot")
-        st.subheader("A chatbot trained in the likes of the most incredible person on Earth")
-        st.write("Until I figure out the training data, you can throw a website in, crawl it, and generate an SME on that website")
+        # EMERGENCY: Replace ALL markdown-processing components with st.text()
+        st.text("THE LAURA NATALIA GONZALEZ CHAT BOT")  # No markdown processing
+        st.text("A chatbot trained in the likes of the most incredible person on Earth")  # No markdown processing
+        st.text("Until I figure out the training data, you can throw a website in, crawl it, and generate an SME on that website")  # No markdown processing
         
         # Display sidebar
         display_sidebar()
