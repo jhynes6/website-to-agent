@@ -61,8 +61,8 @@ def run_app():
         st.session_state.pending_response = None
     
     # App title and description in main content area
-    st.title("WebToAgent")
-    st.subheader("Extract domain knowledge from any website and create specialized AI agents.")
+    st.title("The Laura Natalia Gonzales Chat Bot")
+    st.subheader("A chatbot trained in the likes of the most incredible person on Earth")
     
     # Display welcome message using AI chat message component
     if not st.session_state.domain_agent:
@@ -213,7 +213,8 @@ def run_app():
                 progress_container.empty()
         
         except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
+            safe_error_msg = sanitize_markdown_content(str(e))
+            st.error(f"❌ Error: {safe_error_msg}")
             logger.error(f"❌ WORKFLOW ERROR: {str(e)}")
             st.session_state.extraction_status = "failed"
     
@@ -295,7 +296,8 @@ def run_async_extraction(url: str, max_pages: int, use_full_text: bool, progress
         result = result_queue.get(timeout=1)
         if result is None and not error_queue.empty():
             error_msg = error_queue.get()
-            st.error(f"❌ Extraction failed: {error_msg}")
+            safe_error_msg = sanitize_markdown_content(str(error_msg))
+            st.error(f"❌ Extraction failed: {safe_error_msg}")
         return result
     except queue.Empty:
         st.error("❌ Extraction failed: No result returned")
@@ -429,7 +431,8 @@ def display_chat_interface():
                     logger.info("✅ CHAT FALLBACK COMPLETE: Non-streaming response delivered")
                 except Exception as e2:
                     logger.error(f"❌ CHAT ERROR: Failed to generate response - {str(e2)}")
-                    st.error(f"Error generating response: {str(e2)}")
+                    safe_error_msg = sanitize_markdown_content(str(e2))
+                    st.error(f"Error generating response: {safe_error_msg}")
 
 if __name__ == "__main__":
     run_app()
