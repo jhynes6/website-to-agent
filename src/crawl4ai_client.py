@@ -213,13 +213,18 @@ class Crawl4AIClient:
             scraped_set = set()
             
             logger.info(f"🌐 CRAWLING STRATEGY: Will scrape up to {max_urls} pages from domain: {base_domain}")
+            logger.info(f"📋 INITIAL QUEUE: urls_to_scrape = {urls_to_scrape}")
             
             # Scrape pages up to max_urls limit
             while urls_to_scrape and len(scraped_urls) < max_urls:
+                logger.info(f"🔄 LOOP ITERATION: Processing queue with {len(urls_to_scrape)} URLs remaining")
                 current_url = urls_to_scrape.pop(0)
+                logger.info(f"📤 DEQUEUED: Popped '{current_url}' from queue")
+                logger.info(f"📋 QUEUE NOW: urls_to_scrape = {urls_to_scrape}")
                 
                 # Skip if already scraped
                 if current_url in scraped_set:
+                    logger.info(f"⏭️ SKIP: {current_url} already in scraped_set")
                     continue
                     
                 logger.info(f"📡 SCRAPING ({len(scraped_urls)+1}/{max_urls}): {current_url}")
@@ -235,26 +240,67 @@ class Crawl4AIClient:
                     # Find more internal links if we need more pages
                     if len(scraped_urls) < max_urls:
                         try:
+                            logger.info(f"🔍 LINK DISCOVERY: Analyzing {current_url} for internal links...")
+                            
                             soup = BeautifulSoup(result.html, 'html.parser')
                             links = soup.find_all('a', href=True)
+                            logger.info(f"📄 HTML ANALYSIS: Found {len(links)} total links on page")
+                            
+                            # Show current queue state before adding new links
+                            logger.info(f"📋 QUEUE BEFORE: urls_to_scrape = {urls_to_scrape}")
                             
                             new_links_found = 0
+                            rejected_links = {
+                                'external_domain': 0,
+                                'already_scraped': 0,
+                                'already_queued': 0,
+                                'invalid_file_type': 0
+                            }
+                            discovered_urls = []
+                            
                             for link in links:
                                 href = link['href']
                                 # Convert relative URLs to absolute
                                 full_url = urljoin(current_url, href)
                                 parsed_link = urlparse(full_url)
                                 
-                                # Only add links from the same domain
-                                if (parsed_link.netloc == base_domain and 
-                                    full_url not in scraped_set and 
-                                    full_url not in urls_to_scrape and
-                                    not full_url.endswith(('.pdf', '.jpg', '.png', '.gif', '.css', '.js', '.zip'))):
+                                # Apply filters and log the decision
+                                if parsed_link.netloc != base_domain:
+                                    rejected_links['external_domain'] += 1
+                                    logger.debug(f"🚫 REJECT (external): {full_url}")
+                                elif full_url in scraped_set:
+                                    rejected_links['already_scraped'] += 1
+                                    logger.debug(f"🚫 REJECT (already scraped): {full_url}")
+                                elif full_url in urls_to_scrape:
+                                    rejected_links['already_queued'] += 1
+                                    logger.debug(f"🚫 REJECT (already queued): {full_url}")
+                                elif full_url.endswith(('.pdf', '.jpg', '.png', '.gif', '.css', '.js', '.zip')):
+                                    rejected_links['invalid_file_type'] += 1
+                                    logger.debug(f"🚫 REJECT (file type): {full_url}")
+                                else:
+                                    # This link passes all filters - add it to queue
                                     urls_to_scrape.append(full_url)
+                                    discovered_urls.append(full_url)
                                     new_links_found += 1
+                                    logger.info(f"✅ ACCEPT: {full_url}")
                             
-                            if new_links_found > 0:
-                                logger.info(f"🔗 DISCOVERED: Found {new_links_found} new internal links to scrape")
+                            # Log discovery summary
+                            logger.info(f"🔗 DISCOVERY SUMMARY:")
+                            logger.info(f"   • Total links found: {len(links)}")
+                            logger.info(f"   • New URLs added to queue: {new_links_found}")
+                            logger.info(f"   • Rejected - External domain: {rejected_links['external_domain']}")
+                            logger.info(f"   • Rejected - Already scraped: {rejected_links['already_scraped']}")
+                            logger.info(f"   • Rejected - Already queued: {rejected_links['already_queued']}")
+                            logger.info(f"   • Rejected - Invalid file type: {rejected_links['invalid_file_type']}")
+                            
+                            if discovered_urls:
+                                logger.info(f"🆕 NEW URLS DISCOVERED:")
+                                for i, discovered_url in enumerate(discovered_urls, 1):
+                                    logger.info(f"     {i}. {discovered_url}")
+                            
+                            # Show updated queue state
+                            logger.info(f"📋 QUEUE AFTER: urls_to_scrape = {urls_to_scrape}")
+                            logger.info(f"📊 QUEUE STATUS: {len(urls_to_scrape)} URLs remaining to scrape")
                                 
                         except Exception as link_error:
                             logger.warning(f"⚠️ LINK EXTRACTION ERROR: {str(link_error)}")
@@ -292,7 +338,7 @@ class Crawl4AIClient:
                 'description': f"Content from {len(scraped_urls)} pages on {base_domain}",
                 'keywords': []  # Keywords not available for multi-page scrapes
             }
-            
+                    
         except Exception as e:
             logger.error(f"❌ EXTRACT ERROR: {str(e)}")
             return {

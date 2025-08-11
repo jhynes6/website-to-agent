@@ -179,14 +179,14 @@ def run_workflow():
         logger.info("📊 STEP 1: Starting content extraction")
         
         # Initialize progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
         # Update progress
         status_text.text("Step 1/3: Discovering website pages...")  # No emojis
         logger.info("🌱 PROGRESS: Step 1/3 - Discovering pages")
-        progress_bar.progress(10)
-        
+                progress_bar.progress(10)
+                
         # Run extraction in background thread
         result_queue = queue.Queue()
         error_queue = queue.Queue()
@@ -255,8 +255,8 @@ def run_workflow():
         if not result or not content:
             logger.error("❌ VALIDATION: No content in extraction result")
             safe_error_display("❌ Failed to extract content from the website. Please check the URL and try again.")
-            return
-        
+                    return
+                
         # Check if this was an extraction error (graceful failure)
         if result.get('extraction_error'):
             logger.warning(f"⚠️ EXTRACTION WARNING: {result.get('extraction_error')}")
@@ -432,13 +432,13 @@ def run_workflow():
         st.info("🤖 Your specialized AI agent is ready. You can now chat with it using the interface below!")
         logger.info("✅ WORKFLOW SUCCESS: Agent stored in session state and ready for chat")
         
-    except Exception as e:
+        except Exception as e:
         log_error_with_traceback("Main workflow failed", e)
         safe_error_msg = sanitize_markdown_content(str(e))
         safe_error_display(f"❌ Error: {safe_error_msg}")
-        logger.error(f"❌ WORKFLOW ERROR: {str(e)}")
-        st.session_state.extraction_status = "failed"
-
+            logger.error(f"❌ WORKFLOW ERROR: {str(e)}")
+            st.session_state.extraction_status = "failed"
+    
 def display_sidebar():
     """Display the sidebar with input controls"""
     logger.info("📋 UI: Rendering sidebar")
@@ -568,7 +568,7 @@ def display_chat_interface():
     # Display chat history
     for i, message in enumerate(st.session_state.messages):
         try:
-            with st.chat_message(message["role"]):
+        with st.chat_message(message["role"]):
                 # Use safe markdown display with automatic fallback
                 if not safe_markdown_display(message["content"], fallback_to_text=True):
                     log_error_with_traceback(f"Chat message {i} could not be displayed safely", None)

@@ -1,0 +1,66 @@
+{
+  "summary": {
+    "total_tests": 9,
+    "passed": 9,
+    "failed": 0,
+    "success_rate": 1.0,
+    "total_time": 35.15293884277344,
+    "test_domain": "docs.python.org",
+    "max_urls": 8
+  },
+  "detailed_results": {
+    "sitemap_discovery": {
+      "domain": "docs.python.org",
+      "urls_found": 7,
+      "elapsed_time": 5.0025739669799805,
+      "sample_urls": [
+        "https://docs.python.org/3.9/",
+        "https://docs.python.org/3.10/",
+        "https://docs.python.org/3.11/"
+      ]
+    },
+    "head_extraction": {
+      "domain": "docs.python.org",
+      "urls_processed": 3,
+      "urls_with_head_data": 3,
+      "elapsed_time": 5.0029990673065186,
+      "success_rate": 1.0
+    },
+    "caching": {
+      "domain": "docs.python.org",
+      "first_run_time": 5.008606910705566,
+      "second_run_time": 5.008116006851196,
+      "cache_effective": false,
+      "urls_consistent": true
+    },
+    "bm25_scoring": {
+      "domain": "docs.python.org",
+      "query": "python documentation guide",
+      "urls_processed": 7,
+      "urls_scored": 7,
+      "elapsed_time": 5.003406047821045,
+      "top_scores": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.0
+      ]
+    },
+    "rate_limiting": {
+      "domain": "docs.python.org",
+      "hits_per_sec": 2,
+      "urls_processed": 5,
+      "elapsed_time": 5.015099048614502,
+      "expected_min_time": 2.5,
+      "rate_limit_effective": true
+    },
+    "custom_url_extraction": {
+      "urls_input": 3,
+      "urls_processed": 3,
+      "valid_results": 2,
+      "elapsed_time": 0.0011899471282958984,
+      "success_rate": 0.6666666666666666
+    }
+  }
+}
