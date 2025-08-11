@@ -1,0 +1,38 @@
+name: website-to-agent-chat
+region: nyc1
+
+domains:
+  - domain: chat.lauragonzales.com
+    type: PRIMARY
+
+services:
+  - name: web
+    source_dir: /
+    github:
+      repo: jhynes6/website-to-agent
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: Dockerfile
+    http_port: 8501
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /
+    envs:
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: YOUR_OPENAI_API_KEY_HERE
+      - key: STREAMLIT_SERVER_PORT
+        scope: RUN_TIME
+        value: "8501"
+      - key: STREAMLIT_SERVER_ADDRESS
+        scope: RUN_TIME
+        value: "0.0.0.0"
+    health_check:
+      http_path: /
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      failure_threshold: 3
+      success_threshold: 2
