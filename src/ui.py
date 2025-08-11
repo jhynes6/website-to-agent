@@ -544,7 +544,7 @@ def run_app():
             logger.info("📝 INIT: Domain agent initialized")
         
         # Main header
-        st.title("The Laura Natalia Gonzales Chat Bot")
+        st.title("The Laura Natalia Gonzalez Chat Bot")
         st.subheader("A chatbot trained in the likes of the most incredible person on Earth")
         st.write("Until I figure out the training data, you can throw a website in, crawl it, and generate an SME on that website")
         
