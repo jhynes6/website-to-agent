@@ -2,7 +2,7 @@ name: website-to-agent-chat
 region: nyc1
 
 domains:
-  - domain: chat.lauragonzales.com
+  - domain: app.lauragonzales.com
     type: PRIMARY
 
 services:
