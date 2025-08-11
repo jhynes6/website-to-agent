@@ -67,7 +67,7 @@ def run_app():
     # Display welcome message using AI chat message component
     if not st.session_state.domain_agent:
         with st.chat_message("assistant"):
-            st.markdown("👋 Welcome! Enter a website URL in the sidebar, and I'll transform it into an AI agent you can chat with.")
+            st.markdown("Until theI figure out the training data, you can throw a website in, crawl it, and generate an SME on that website")
     
     # Form elements in sidebar
     st.sidebar.title("Create your agent")
