@@ -17,9 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps first for better cache
-COPY requirements.docker.txt ./
+COPY requirements.txt ./
 RUN python -m pip install --upgrade pip \
-    && pip install -r requirements.docker.txt
+    && pip install -r requirements.txt
 
 # Copy source
 COPY . .
