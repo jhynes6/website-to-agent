@@ -175,7 +175,7 @@ def run_workflow():
 
         # Step 1: Content Extraction
         # EMERGENCY: Use st.text instead of st.success to avoid markdown parsing
-        st.text("Starting website analysis with Crawl4AI...")
+        st.text("Starting website analysis with Simple Scraper...")
         logger.info("📊 STEP 1: Starting content extraction")
         
         # Initialize progress tracking

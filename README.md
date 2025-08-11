@@ -1,3 +1,7 @@
+echo "🔍 Monitoring deployment logs - waiting for app to start without critical errors..." && doctl apps logs c363f830-2d40-4648-bedc-a5a6256f3bf6 --type run --follow
+
+
+
 How to launch the app: 
 
 export OPENAI_API_KEY=your_openai_api_key_here && streamlit run app.py
