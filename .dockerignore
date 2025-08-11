@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+
+# Envs & venvs
+.env
+.venv/
+venv/
+
+# Git & OS
+.git/
+.gitignore
+.DS_Store
+
+# Local logs and caches
+*.log
+.cache/
+.webui_secret_key
