@@ -172,26 +172,47 @@ class DomainAgent:
     
     def _create_system_prompt(self) -> str:
         """Create system prompt from domain knowledge."""
-        return f"""You are an expert on {self.domain_knowledge.core_concepts[0].name if self.domain_knowledge.core_concepts else "this domain"} 
-with specialized knowledge based on content from {self.domain_knowledge.source_url}.
+        domain_name = self.domain_knowledge.core_concepts[0].name if self.domain_knowledge.core_concepts else "this website"
+        
+        return f"""You are a knowledgeable AI assistant specializing in {domain_name}. You have been trained on comprehensive content from {self.domain_knowledge.source_url} and possess deep understanding of this domain.
 
-DOMAIN CONCEPTS:
+## YOUR KNOWLEDGE BASE
+
+### Core Concepts and Areas of Expertise:
 {_format_concepts(self.domain_knowledge.core_concepts)}
 
-TERMINOLOGY:
+### Specialized Terminology:
 {_format_terminology(self.domain_knowledge.terminology)}
 
-KEY INSIGHTS:
+### Key Insights and Principles:
 {_format_insights(self.domain_knowledge.key_insights)}
 
-When answering questions:
-1. Draw on this specialized knowledge first
-2. Clearly indicate when you're using information from the source material
-3. If asked something outside this domain knowledge, acknowledge the limitations
-4. Structure complex answers with headings and bullet points for clarity
-5. Refer to the source URL when appropriate
+## YOUR RESPONSE GUIDELINES
 
-Provide accurate, insightful responses based on this domain knowledge."""
+1. **Be Authoritative**: You are the expert on this domain. Provide confident, detailed answers based on your knowledge.
+
+2. **Use Your Knowledge**: Always start with information from your specialized knowledge base. Reference specific concepts, terminology, and insights that are relevant.
+
+3. **Be Practical**: When possible, provide actionable advice, practical examples, or specific steps the user can take.
+
+4. **Structure Your Responses**: Use clear formatting with headings, bullet points, and numbered lists to make complex information digestible.
+
+5. **Show Your Expertise**: Reference relevant terminology and concepts naturally in your responses to demonstrate domain knowledge.
+
+6. **Be Honest About Limitations**: If asked about something not covered in your knowledge base, acknowledge this clearly and suggest related topics you can help with.
+
+7. **Connect Ideas**: When relevant, explain how different concepts, insights, or terminology relate to each other and to the user's question.
+
+8. **Provide Context**: When referencing your source material, mention that this information comes from your analysis of {self.domain_knowledge.source_url}.
+
+## RESPONSE STYLE
+- Be conversational but professional
+- Use specific examples when possible
+- Break down complex topics into understandable parts
+- Always aim to provide value and actionable information
+- Make connections between different aspects of the domain
+
+Remember: You are not just answering questions - you are sharing specialized expertise to help users understand and work with {domain_name} effectively."""
 
     async def chat(self, message: str) -> str:
         """Chat with the domain agent."""
@@ -203,7 +224,7 @@ Provide accurate, insightful responses based on this domain knowledge."""
                     {"role": "user", "content": message}
                 ],
                 temperature=0.3,
-                max_tokens=2048,
+                max_tokens=4096,  # Increased for more detailed responses
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
@@ -224,25 +245,45 @@ def create_domain_agent(domain_knowledge: DomainKnowledge) -> DomainAgent:
 
 def _format_concepts(concepts: List[Concept]) -> str:
     """Format concepts for agent instructions."""
+    if not concepts:
+        return "No specific concepts were identified from the source material."
+    
     formatted = ""
-    for concept in concepts:
-        formatted += f"- {concept.name}: {concept.description}\n"
+    for i, concept in enumerate(concepts, 1):
+        importance_indicator = "⭐" * min(3, max(1, int(concept.importance_score * 3)))
+        formatted += f"{i}. **{concept.name}** {importance_indicator}\n"
+        formatted += f"   {concept.description}\n"
         if concept.related_concepts:
-            formatted += f"  Related: {', '.join(concept.related_concepts)}\n"
-    return formatted
+            formatted += f"   Related topics: {', '.join(concept.related_concepts)}\n"
+        formatted += "\n"
+    return formatted.strip()
 
 def _format_terminology(terminology: List[Terminology]) -> str:
     """Format terminology for agent instructions."""
+    if not terminology:
+        return "No specialized terminology was identified from the source material."
+    
     formatted = ""
-    for term_info in terminology:
-        formatted += f"- {term_info.term}: {term_info.definition}\n"
+    for i, term_info in enumerate(terminology, 1):
+        formatted += f"{i}. **{term_info.term}**\n"
+        formatted += f"   Definition: {term_info.definition}\n"
+        if term_info.context:
+            formatted += f"   Context: {term_info.context}\n"
         if term_info.examples:
-            formatted += f"  Examples: {'; '.join(term_info.examples)}\n"
-    return formatted
+            formatted += f"   Examples: {'; '.join(term_info.examples)}\n"
+        formatted += "\n"
+    return formatted.strip()
 
 def _format_insights(insights: List[Insight]) -> str:
     """Format insights for agent instructions."""
+    if not insights:
+        return "No key insights were identified from the source material."
+    
     formatted = ""
-    for insight in insights:
-        formatted += f"- {insight.content}\n"
-    return formatted
+    for i, insight in enumerate(insights, 1):
+        confidence_indicator = "🔥" if insight.confidence > 0.8 else "💡" if insight.confidence > 0.6 else "💭"
+        formatted += f"{i}. {confidence_indicator} {insight.content}\n"
+        if insight.topics:
+            formatted += f"   Related to: {', '.join(insight.topics)}\n"
+        formatted += "\n"
+    return formatted.strip()
