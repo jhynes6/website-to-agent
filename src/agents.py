@@ -280,11 +280,6 @@ def _format_insights(insights: List[Insight]) -> str:
         return "No key insights were identified from the source material."
     
     formatted = ""
-<<<<<<< Current (Your changes)
-    for insight in insights:
-        formatted += f"- {insight.content}\n"
-    return formatted
-=======
     for i, insight in enumerate(insights, 1):
         confidence_indicator = "🔥" if insight.confidence > 0.8 else "💡" if insight.confidence > 0.6 else "💭"
         formatted += f"{i}. {confidence_indicator} {insight.content}\n"
@@ -292,4 +287,3 @@ def _format_insights(insights: List[Insight]) -> str:
             formatted += f"   Related to: {', '.join(insight.topics)}\n"
         formatted += "\n"
     return formatted.strip()
->>>>>>> Incoming (Background Agent changes)
