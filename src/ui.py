@@ -174,8 +174,8 @@ def run_workflow():
         logger.info(f"📋 WORKFLOW PARAMS: URL={url}, max_urls={max_urls}")
 
         # Step 1: Content Extraction
-        # EMERGENCY: Use st.text instead of st.success to avoid markdown parsing
-        st.text("Starting website analysis with Simple Scraper...")
+        # Restore proper success messaging 
+        st.success("🕷️ Starting website analysis with Simple Scraper...")
         logger.info("📊 STEP 1: Starting content extraction")
         
         # Initialize progress tracking
@@ -263,8 +263,8 @@ def run_workflow():
             st.text("⚠️ Content extraction completed with warnings - proceeding with available content")
         else:
             logger.info(f"✅ VALIDATION: Content extracted successfully ({len(content)} chars)")
-            # EMERGENCY: Use st.text instead of st.success to avoid markdown parsing  
-            st.text("Content extraction completed!")
+            # Restore proper success messaging
+            st.success("✅ Content extraction completed!")
         
         # Step 2: Knowledge Extraction
         progress_bar.progress(85)
@@ -301,6 +301,36 @@ def run_workflow():
             if not knowledge_queue.empty():
                 domain_knowledge = knowledge_queue.get()
                 logger.info("✅ STEP 2 COMPLETE: Domain knowledge extracted successfully")
+                
+                # 🎯 DISPLAY LLM ANALYSIS SUMMARY - RESTORED!
+                st.success("✅ Domain knowledge extracted successfully!")
+                
+                # Show analysis metrics
+                st.subheader("📊 AI Analysis Results")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Core Concepts", len(domain_knowledge.core_concepts))
+                with col2:
+                    st.metric("Key Terms", len(domain_knowledge.terminology))
+                with col3:
+                    st.metric("Insights", len(domain_knowledge.key_insights))
+                
+                # Show key concepts found
+                if domain_knowledge.core_concepts:
+                    with st.expander("🎯 Key Concepts Discovered", expanded=True):
+                        for i, concept in enumerate(domain_knowledge.core_concepts[:5]):
+                            safe_name = sanitize_markdown_content(concept.name) 
+                            safe_desc = sanitize_markdown_content(concept.description)
+                            st.write(f"**{safe_name}**: {safe_desc[:200]}...")
+                
+                # Show key insights 
+                if domain_knowledge.key_insights:
+                    with st.expander("💡 Key Insights Found", expanded=True):
+                        for insight in domain_knowledge.key_insights[:3]:
+                            safe_content = sanitize_markdown_content(insight.content)
+                            st.write(f"• {safe_content[:300]}...")
+                
+                st.info("🤖 Now creating your specialized AI agent...")
             elif not knowledge_error_queue.empty():
                 error_msg = knowledge_error_queue.get()
                 safe_error_msg = sanitize_markdown_content(str(error_msg))
@@ -373,9 +403,9 @@ def run_workflow():
         st.session_state.extraction_status = "completed"
         
         # Show success message
-        # EMERGENCY: Use st.text instead of st.success/st.info to avoid markdown parsing
-        st.text("Agent Created Successfully!")
-        st.text("Your specialized AI agent is ready. You can now chat with it using the interface below!")
+        # Restore proper success messaging
+        st.success("🎉 Agent Created Successfully!")
+        st.info("🤖 Your specialized AI agent is ready. You can now chat with it using the interface below!")
         logger.info("✅ WORKFLOW SUCCESS: Agent stored in session state and ready for chat")
         
     except Exception as e:
@@ -559,13 +589,11 @@ def run_app():
             run_workflow()
         elif st.session_state.extraction_status == "completed":
             logger.info("✅ WORKFLOW: Status is completed, showing chat interface")
-            # EMERGENCY: Use st.text instead of st.success to avoid any markdown parsing
-            st.text("Agent Ready! You can now chat with your specialized assistant.")
+            st.success("🤖 Agent Ready! You can now chat with your specialized assistant.")
             display_chat_interface()
         else:
             logger.info("💭 STANDBY: Showing welcome message")
-            # EMERGENCY: Use st.text instead of st.info to avoid any markdown parsing
-            st.text("Welcome! Enter a website URL in the sidebar, and I'll transform it into an AI agent you can chat with.")
+            st.info("👋 Welcome! Enter a website URL in the sidebar, and I'll transform it into an AI agent you can chat with.")
             
         logger.info("✅ APP: Application rendering completed successfully")
         
