@@ -315,20 +315,44 @@ def run_workflow():
                 with col3:
                     st.metric("Insights", len(domain_knowledge.key_insights))
                 
+                # 🐛 DEBUG: Show what we actually extracted
+                st.write(f"DEBUG - Core concepts found: {len(domain_knowledge.core_concepts)}")
+                st.write(f"DEBUG - Key insights found: {len(domain_knowledge.key_insights)}")
+                st.write(f"DEBUG - Terminology found: {len(domain_knowledge.terminology)}")
+                
                 # Show key concepts found
                 if domain_knowledge.core_concepts:
                     with st.expander("🎯 Key Concepts Discovered", expanded=True):
                         for i, concept in enumerate(domain_knowledge.core_concepts[:5]):
-                            safe_name = sanitize_markdown_content(concept.name) 
-                            safe_desc = sanitize_markdown_content(concept.description)
-                            st.write(f"**{safe_name}**: {safe_desc[:200]}...")
+                            st.write(f"**Concept {i+1}: {concept.name}**")
+                            st.write(f"Description: {concept.description[:300]}")
+                            if concept.related_concepts:
+                                st.write(f"Related: {', '.join(concept.related_concepts[:3])}")
+                            st.write("---")
+                else:
+                    st.warning("⚠️ No core concepts were extracted from the website")
                 
                 # Show key insights 
                 if domain_knowledge.key_insights:
                     with st.expander("💡 Key Insights Found", expanded=True):
-                        for insight in domain_knowledge.key_insights[:3]:
-                            safe_content = sanitize_markdown_content(insight.content)
-                            st.write(f"• {safe_content[:300]}...")
+                        for i, insight in enumerate(domain_knowledge.key_insights[:3]):
+                            st.write(f"**Insight {i+1}:**")
+                            st.write(f"{insight.content[:400]}")
+                            if insight.topics:
+                                st.write(f"Topics: {', '.join(insight.topics)}")
+                            st.write(f"Confidence: {insight.confidence:.1%}")
+                            st.write("---")
+                else:
+                    st.warning("⚠️ No key insights were extracted from the website")
+                    
+                # Show some terminology too
+                if domain_knowledge.terminology:
+                    with st.expander("📚 Key Terms Found", expanded=False):
+                        for i, term in enumerate(domain_knowledge.terminology[:5]):
+                            st.write(f"**{term.term}**: {term.definition[:200]}")
+                            if term.examples:
+                                st.write(f"Examples: {', '.join(term.examples[:2])}")
+                            st.write("---")
                 
                 st.info("🤖 Now creating your specialized AI agent...")
             elif not knowledge_error_queue.empty():
@@ -480,6 +504,11 @@ def display_chat_interface():
     """Display chat interface for interacting with the domain agent."""
     logger.info("💬 UI: Rendering chat interface")
     
+    # 🐛 DEBUG: Show chat interface status
+    st.write("🐛 DEBUG: Chat interface is rendering!")
+    st.write(f"DEBUG: Messages in history: {len(st.session_state.messages)}")
+    st.write(f"DEBUG: Domain agent exists: {st.session_state.domain_agent is not None}")
+    
     # Display chat history
     for i, message in enumerate(st.session_state.messages):
         try:
@@ -490,7 +519,10 @@ def display_chat_interface():
         except Exception as msg_e:
             log_error_with_traceback(f"Chat message {i} display failed", msg_e)
 
-    # Chat input
+    # 🐛 DEBUG: Confirm chat input is about to render
+    st.write("🐛 DEBUG: About to render chat input...")
+    
+    # Chat input - MAKE SURE THIS RENDERS
     if prompt := st.chat_input("Ask me anything about the website..."):
         logger.info(f"💬 CHAT INPUT: User sent message: {prompt[:100]}...")
         
@@ -582,6 +614,10 @@ def run_app():
         
         # Display sidebar
         display_sidebar()
+        
+        # 🐛 DEBUG: Show current status
+        st.write(f"🐛 DEBUG: Current extraction_status = '{st.session_state.extraction_status}'")
+        st.write(f"DEBUG: Domain agent exists = {st.session_state.domain_agent is not None}")
         
         # Handle workflow execution
         if st.session_state.extraction_status == "running":
