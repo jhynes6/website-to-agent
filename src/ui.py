@@ -315,10 +315,10 @@ def run_workflow():
                 with col3:
                     st.metric("Insights", len(domain_knowledge.key_insights))
                 
-                # 🐛 DEBUG: Show what we actually extracted
-                st.write(f"DEBUG - Core concepts found: {len(domain_knowledge.core_concepts)}")
-                st.write(f"DEBUG - Key insights found: {len(domain_knowledge.key_insights)}")
-                st.write(f"DEBUG - Terminology found: {len(domain_knowledge.terminology)}")
+                # Debug info (can remove when stable)
+                # st.write(f"DEBUG - Core concepts found: {len(domain_knowledge.core_concepts)}")
+                # st.write(f"DEBUG - Key insights found: {len(domain_knowledge.key_insights)}")
+                # st.write(f"DEBUG - Terminology found: {len(domain_knowledge.terminology)}")
                 
                 # Show key concepts found
                 if domain_knowledge.core_concepts:
@@ -560,10 +560,10 @@ def display_chat_interface():
     """Display chat interface for interacting with the domain agent (only when agent is ready)."""
     logger.info("💬 UI: Rendering chat interface")
     
-    # 🐛 DEBUG: Show chat interface status
-    st.write("🐛 DEBUG: Chat interface is rendering!")
-    st.write(f"DEBUG: Messages in history: {len(st.session_state.messages)}")
-    st.write(f"DEBUG: Domain agent exists: {st.session_state.domain_agent is not None}")
+    # Debug info (can remove when stable)
+    # st.write("🐛 DEBUG: Chat interface is rendering!")
+    # st.write(f"DEBUG: Messages in history: {len(st.session_state.messages)}")
+    # st.write(f"DEBUG: Domain agent exists: {st.session_state.domain_agent is not None}")
     
     # Display chat history
     for i, message in enumerate(st.session_state.messages):
@@ -575,8 +575,8 @@ def display_chat_interface():
         except Exception as msg_e:
             log_error_with_traceback(f"Chat message {i} display failed", msg_e)
 
-    # 🐛 DEBUG: Confirm chat input is about to render
-    st.write("🐛 DEBUG: About to render chat input...")
+    # Debug info (can remove when stable)
+    # st.write("🐛 DEBUG: About to render chat input...")
     
     # Chat input - MAKE SURE THIS RENDERS
     if prompt := st.chat_input("Ask me anything about the website..."):
@@ -760,18 +760,17 @@ def run_app():
         # Display sidebar
         display_sidebar()
         
-        # 🐛 DEBUG: Show current status
-        st.write(f"🐛 DEBUG: Current extraction_status = '{st.session_state.extraction_status}'")
-        st.write(f"DEBUG: Domain agent exists = {st.session_state.domain_agent is not None}")
+        # Debug info (can remove when stable)
+        # st.write(f"🐛 DEBUG: Current extraction_status = '{st.session_state.extraction_status}'")
+        # st.write(f"DEBUG: Domain agent exists = {st.session_state.domain_agent is not None}")
         
         # Handle workflow execution
         if st.session_state.extraction_status == "running":
             logger.info("🔄 WORKFLOW: Status is running, executing workflow")
             run_workflow()
         elif st.session_state.extraction_status == "completed":
-            logger.info("✅ WORKFLOW: Status is completed, showing chat interface")
+            logger.info("✅ WORKFLOW: Status is completed, showing success message")
             st.success("🤖 Agent Ready! You can now chat with your specialized assistant.")
-            display_chat_interface()
         else:
             logger.info("💭 STANDBY: Showing welcome message")
             st.info("👋 Welcome! Enter a website URL in the sidebar, and I'll transform it into an AI agent you can chat with.")
