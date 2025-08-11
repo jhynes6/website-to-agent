@@ -32,7 +32,7 @@ from src.llms_text import extract_website_content
 from src.agents import extract_domain_knowledge, create_domain_agent
 
 def sanitize_markdown_content(content):
-    """Sanitize markdown content to prevent ReactMarkdown parsing errors."""
+    """ULTRA-AGGRESSIVE sanitization to prevent ReactMarkdown parsing errors."""
     try:
         if not content:
             return ""
@@ -40,71 +40,72 @@ def sanitize_markdown_content(content):
         # Convert to string if not already
         content = str(content)
         
-        # AGGRESSIVE sanitization to prevent ReactMarkdown crashes
+        # LOG THE RAW CONTENT FOR DEBUGGING
+        logger.error(f"🔍 SANITIZING CONTENT (first 200 chars): {repr(content[:200])}")
         
-        # Remove ALL HTML-like tags and directives completely
-        content = re.sub(r'<[^>]*>', ' ', content)
+        # NUCLEAR OPTION: Remove EVERYTHING that could possibly break ReactMarkdown
+        
+        # Remove ALL HTML/XML tags and attributes  
+        content = re.sub(r'<[^>]*?>', ' ', content)
         content = re.sub(r'&[a-zA-Z0-9#]+;', ' ', content)  # HTML entities
+        content = re.sub(r'<!(?:DOCTYPE|--)[^>]*>', ' ', content)  # DOCTYPE and comments
         
-        # Remove problematic markdown directives that break ReactMarkdown
-        content = re.sub(r':::[a-zA-Z0-9-_]+.*?:::', ' ', content, flags=re.DOTALL)  # Markdown directives
+        # Remove ALL markdown directives, attributes, and special syntax
+        content = re.sub(r':::[^:]*?:::', ' ', content, flags=re.DOTALL)  # Admonitions
+        content = re.sub(r'\{[^}]*\}', ' ', content)  # Any attributes in curly braces
+        content = re.sub(r'\[[^\]]*\](?:\([^)]*\))?', ' ', content)  # Links and refs
         content = re.sub(r'---+', ' ', content)  # Horizontal rules
-        content = re.sub(r'\{[^}]*\}', ' ', content)  # Curly braces (attributes)
-        content = re.sub(r'\[[^\]]*\]\([^)]*\)', ' ', content)  # Links
+        content = re.sub(r'\|[^|]*\|', ' ', content)  # Table syntax
+        content = re.sub(r'^#+\s*', '', content, flags=re.MULTILINE)  # Headers
         
-        # Remove ALL control characters and non-printable characters
-        content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', ' ', content)
+        # Remove ALL special characters that could confuse ReactMarkdown
+        content = re.sub(r'[<>{}\\|`~\[\]()_*#@$%^&+=]', ' ', content)
         
-        # Remove problematic punctuation that can break parsing
-        content = re.sub(r'[<>{}\\|`~]', ' ', content)
+        # Remove ALL control and unicode characters
+        content = re.sub(r'[\x00-\x1F\x7F-\x9F]', ' ', content)
+        content = re.sub(r'[^\x20-\x7E]', ' ', content)  # Only allow basic ASCII
         
-        # Remove multiple consecutive special characters
-        content = re.sub(r'[^\w\s.,!?()-]{2,}', ' ', content)
+        # Remove multiple consecutive punctuation/special chars
+        content = re.sub(r'[^\w\s]{2,}', ' ', content)
         
-        # Normalize whitespace
+        # Normalize ALL whitespace
         content = re.sub(r'\s+', ' ', content)
         content = content.strip()
         
-        # Limit length to prevent overwhelming the UI
-        if len(content) > 5000:
-            content = content[:5000] + "... (truncated)"
+        # STRICT length limit
+        if len(content) > 3000:
+            content = content[:3000] + " (truncated)"
         
-        # Final safety check - if it still contains problematic patterns, return plain text
-        if any(char in content for char in ['<', '>', '{', '}', '\\', '`', '~']):
-            # Strip everything except basic alphanumeric and common punctuation
-            content = re.sub(r'[^\w\s.,!?():-]', ' ', content)
-            content = re.sub(r'\s+', ' ', content).strip()
-            
-        return content
+        # FINAL NUCLEAR SAFETY CHECK - only allow basic alphanumeric + minimal punctuation
+        content = re.sub(r'[^a-zA-Z0-9\s.,!?:-]', ' ', content)
+        content = re.sub(r'\s+', ' ', content).strip()
+        
+        logger.error(f"🛡️ SANITIZED RESULT (first 200 chars): {repr(content[:200])}")
+        
+        return content if content else "Content processed safely"
+        
     except Exception as e:
-        log_error_with_traceback("markdown sanitization failed", e)
-        # Emergency fallback - return only alphanumeric content
-        try:
-            safe_content = re.sub(r'[^\w\s.,!?]', ' ', str(content))
-            return safe_content[:1000] if safe_content else "Error: content could not be displayed"
-        except:
-            return "Error: content could not be displayed"
+        log_error_with_traceback("CRITICAL: markdown sanitization failed", e)
+        # ABSOLUTE EMERGENCY FALLBACK
+        return "Error: Content could not be processed safely"
 
 def safe_markdown_display(content, fallback_to_text=True):
-    """Safely display markdown content with automatic fallback to text"""
+    """EMERGENCY: COMPLETELY BYPASS MARKDOWN - Use only text display to prevent ReactMarkdown crashes"""
     try:
+        logger.error(f"🚨 SAFE_MARKDOWN_DISPLAY: Bypassing markdown completely, using text only")
         safe_content = sanitize_markdown_content(content)
+        
+        # EMERGENCY: NEVER USE st.markdown() - only st.text() to eliminate ReactMarkdown crashes
         if safe_content and len(safe_content.strip()) > 0:
-            st.markdown(safe_content)
+            st.text(safe_content[:1000])  # Text display only, truncated for safety
             return True
         else:
-            if fallback_to_text:
-                st.text("(Empty or invalid content)")
+            st.text("(Empty or invalid content)")
             return False
+            
     except Exception as e:
-        log_error_with_traceback("Safe markdown display failed", e)
-        if fallback_to_text:
-            # Ultimate fallback - display raw text
-            try:
-                plain_text = re.sub(r'[^\w\s.,!?()-]', ' ', str(content)[:500])
-                st.text(plain_text)
-            except:
-                st.text("Error: Content could not be displayed safely")
+        log_error_with_traceback("Even text display failed", e)
+        st.text("Error: Content could not be displayed safely")
         return False
 
 def safe_error_display(error_message):
@@ -173,7 +174,8 @@ def run_workflow():
         logger.info(f"📋 WORKFLOW PARAMS: URL={url}, max_urls={max_urls}")
 
         # Step 1: Content Extraction
-        st.success("🕷️ Starting website analysis with Crawl4AI...")
+        # EMERGENCY: Use st.text instead of st.success to avoid markdown parsing
+        st.text("Starting website analysis with Crawl4AI...")
         logger.info("📊 STEP 1: Starting content extraction")
         
         # Initialize progress tracking
@@ -255,7 +257,8 @@ def run_workflow():
             return
         
         logger.info(f"✅ VALIDATION: Content extracted successfully ({len(result['content'])} chars)")
-        st.success("✅ Content extraction completed!")
+        # EMERGENCY: Use st.text instead of st.success to avoid markdown parsing  
+        st.text("Content extraction completed!")
         
         # Step 2: Knowledge Extraction
         progress_bar.progress(85)
@@ -369,8 +372,9 @@ def run_workflow():
         st.session_state.extraction_status = "completed"
         
         # Show success message
-        st.success("🎉 **Agent Created Successfully!**")
-        st.info("Your specialized AI agent is ready. You can now chat with it using the interface below!")
+        # EMERGENCY: Use st.text instead of st.success/st.info to avoid markdown parsing
+        st.text("Agent Created Successfully!")
+        st.text("Your specialized AI agent is ready. You can now chat with it using the interface below!")
         logger.info("✅ WORKFLOW SUCCESS: Agent stored in session state and ready for chat")
         
     except Exception as e:
@@ -553,11 +557,13 @@ def run_app():
             run_workflow()
         elif st.session_state.extraction_status == "completed":
             logger.info("✅ WORKFLOW: Status is completed, showing chat interface")
-            st.success("🎉 **Agent Ready!** You can now chat with your specialized assistant.")
+            # EMERGENCY: Use st.text instead of st.success to avoid any markdown parsing
+            st.text("Agent Ready! You can now chat with your specialized assistant.")
             display_chat_interface()
         else:
             logger.info("💭 STANDBY: Showing welcome message")
-            st.info("👋 Welcome! Enter a website URL in the sidebar, and I'll transform it into an AI agent you can chat with.")
+            # EMERGENCY: Use st.text instead of st.info to avoid any markdown parsing
+            st.text("Welcome! Enter a website URL in the sidebar, and I'll transform it into an AI agent you can chat with.")
             
         logger.info("✅ APP: Application rendering completed successfully")
         
