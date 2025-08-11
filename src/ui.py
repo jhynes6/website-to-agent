@@ -476,32 +476,88 @@ def display_sidebar():
             except Exception as button_e:
                 log_error_with_traceback("Button click handler failed", button_e)
 
-def get_streaming_response(agent, message):
-    """Get streaming response from agent (placeholder for now)"""
+async def get_streaming_response(agent, message):
+    """Get streaming response from agent using actual OpenAI API"""
     logger.info(f"💬 CHAT: Getting streaming response for message: {message[:50]}...")
     try:
-        # This would be replaced with actual streaming logic
-        response = f"I understand you're asking about: {message}. Based on the website content I analyzed, I can help you with that."
-        logger.info("✅ CHAT: Streaming response generated successfully")
-        return response
+        if hasattr(agent, 'chat'):
+            response = await agent.chat(message)
+            logger.info("✅ CHAT: Streaming response generated successfully")
+            return response
+        else:
+            logger.warning("🚨 CHAT: Agent doesn't have chat method, using fallback")
+            return f"I apologize, but I'm not properly configured yet. Please recreate the agent."
     except Exception as e:
         log_error_with_traceback("Streaming response failed", e)
         raise
 
+def run_async_chat_response(agent, message, result_queue, error_queue):
+    """Run the async chat response in a separate thread"""
+    logger.info(f"🔧 CHAT THREAD START: Starting chat thread for message: {message[:50]}...")
+    
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        logger.info("✅ CHAT THREAD: Event loop created successfully")
+        
+        async def chat():
+            logger.info(f"🚀 ASYNC CHAT START: Beginning chat response")
+            try:
+                if hasattr(agent, 'chat'):
+                    result = await agent.chat(message)
+                    logger.info(f"✅ ASYNC CHAT SUCCESS: Chat completed")
+                    return result
+                else:
+                    logger.warning("🚨 ASYNC CHAT: Agent missing chat method")
+                    return "I apologize, but I'm not properly configured. Please recreate the agent."
+            except Exception as async_e:
+                log_error_with_traceback(f"Async chat failed", async_e)
+                raise
+        
+        result = loop.run_until_complete(chat())
+        logger.info(f"📤 CHAT THREAD: Putting result in queue (size: {len(str(result))} chars)")
+        result_queue.put(result)
+        logger.info("✅ CHAT THREAD: Result successfully queued")
+        
+    except Exception as thread_e:
+        log_error_with_traceback(f"Chat thread failed", thread_e)
+        error_queue.put(str(thread_e))
+        logger.error(f"📤 CHAT THREAD: Error queued: {str(thread_e)}")
+    finally:
+        logger.info("🔧 CHAT THREAD END: Chat thread completed")
+
 def get_non_streaming_response(agent, message):
-    """Get non-streaming response from agent"""
+    """Get non-streaming response from agent using threading for async calls"""
     logger.info(f"💬 CHAT FALLBACK: Getting non-streaming response for: {message[:50]}...")
     try:
-        # Placeholder implementation
-        response = f"Based on the website analysis, I can help you with: {message}"
-        logger.info("✅ CHAT FALLBACK: Non-streaming response generated")
-        return response
+        result_queue = queue.Queue()
+        error_queue = queue.Queue()
+        
+        chat_thread = threading.Thread(
+            target=run_async_chat_response,
+            args=(agent, message, result_queue, error_queue)
+        )
+        chat_thread.start()
+        chat_thread.join(timeout=30)
+        
+        if not result_queue.empty():
+            response = result_queue.get()
+            logger.info("✅ CHAT FALLBACK COMPLETE: Non-streaming response delivered")
+            return response
+        elif not error_queue.empty():
+            error_msg = error_queue.get()
+            logger.error(f"❌ CHAT ERROR: {error_msg}")
+            return f"I apologize, but I encountered an error: {error_msg}"
+        else:
+            logger.error("❌ CHAT TIMEOUT")
+            return "I apologize, but my response timed out. Please try again."
+            
     except Exception as e:
         log_error_with_traceback("Non-streaming response failed", e)
         raise
 
 def display_chat_interface():
-    """Display chat interface for interacting with the domain agent."""
+    """Display chat interface for interacting with the domain agent (only when agent is ready)."""
     logger.info("💬 UI: Rendering chat interface")
     
     # 🐛 DEBUG: Show chat interface status
@@ -542,37 +598,126 @@ def display_chat_interface():
                 full_response = ""
                 
                 try:
-                    # Try streaming response first
-                    logger.info("🔄 CHAT: Attempting streaming response")
-                    streaming_response = get_streaming_response(st.session_state.domain_agent, prompt)
+                    logger.info("🔄 CHAT: Using non-streaming response (since streaming requires async context)...")
+                    full_response = get_non_streaming_response(st.session_state.domain_agent, prompt)
                     
-                    # Simulate streaming by showing chunks (use text to avoid markdown issues)
-                    words = streaming_response.split()
-                    for i, word in enumerate(words):
-                        full_response += word + " "
-                        # Use text display for streaming to avoid markdown parsing during animation
-                        message_placeholder.text(full_response + "▌")
-                        time.sleep(0.05)  # Simulate streaming delay
-                    
-                    # Final response without cursor
-                    message_placeholder.empty()
-                    if not safe_markdown_display(full_response, fallback_to_text=True):
-                        log_error_with_traceback("Final response could not be displayed safely", None)
-                    logger.info("✅ CHAT: Streaming response completed successfully")
-                    
-                except Exception as streaming_e:
-                    log_error_with_traceback("Streaming response failed, trying fallback", streaming_e)
-                    try:
-                        logger.info("🔄 CHAT FALLBACK: Using non-streaming response...")
-                        full_response = get_non_streaming_response(st.session_state.domain_agent, prompt)
+                    if full_response:
+                        # Simulate streaming by showing chunks (use text to avoid markdown issues)
+                        words = full_response.split()
+                        for i, word in enumerate(words):
+                            partial_response = " ".join(words[:i+1])
+                            # Use text display for streaming to avoid markdown parsing during animation
+                            message_placeholder.text(partial_response + "▌")
+                            time.sleep(0.05)  # Simulate streaming delay
+                        
+                        # Final response without cursor
+                        message_placeholder.empty()
                         if not safe_markdown_display(full_response, fallback_to_text=True):
-                            log_error_with_traceback("Fallback response could not be displayed safely", None)
-                        logger.info("✅ CHAT FALLBACK COMPLETE: Non-streaming response delivered")
-                    except Exception as e2:
-                        log_error_with_traceback("Chat fallback failed", e2)
-                        safe_error_msg = sanitize_markdown_content(str(e2))
-                        safe_error_display(f"Error generating response: {safe_error_msg}")
-                        full_response = "I apologize, but I encountered an error generating a response."
+                            log_error_with_traceback("Final response could not be displayed safely", None)
+                        logger.info("✅ CHAT: Response completed successfully")
+                    else:
+                        logger.error("❌ CHAT: No response received")
+                        full_response = "I apologize, but I couldn't generate a response. Please try again."
+                        safe_error_display("No response was generated. Please try again.")
+                    
+                except Exception as e:
+                    log_error_with_traceback("Chat response failed", e)
+                    safe_error_msg = sanitize_markdown_content(str(e))
+                    safe_error_display(f"Error generating response: {safe_error_msg}")
+                    full_response = "I apologize, but I encountered an error generating a response."
+
+                # Add assistant response to chat history
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                logger.info("✅ CHAT: Response added to chat history")
+                
+            except Exception as chat_e:
+                log_error_with_traceback("Chat interface critical error", chat_e)
+                safe_error_msg = sanitize_markdown_content(str(chat_e))
+                safe_error_display(f"Critical chat error: {safe_error_msg}")
+
+def display_chat_interface_always():
+    """Display chat interface that's always visible but handles different states."""
+    logger.info("💬 UI: Rendering always-visible chat interface")
+    
+    # Create a separator
+    st.markdown("---")
+    st.subheader("💬 Chat with your AI Agent")
+    
+    # Check if agent is ready
+    agent_ready = (st.session_state.extraction_status == "completed" and 
+                   st.session_state.domain_agent is not None)
+    
+    if not agent_ready:
+        # Show placeholder when no agent
+        if st.session_state.extraction_status == "running":
+            st.info("🔄 Please wait while your agent is being created...")
+            st.chat_input("Chat will be available once your agent is ready...", disabled=True)
+        elif st.session_state.extraction_status == "failed":
+            st.error("❌ Agent creation failed. Please try creating a new agent.")
+            st.chat_input("Please create a new agent to enable chat...", disabled=True)
+        else:
+            st.info("👋 Create an agent using the sidebar to start chatting!")
+            st.chat_input("Please create an agent first...", disabled=True)
+        return
+    
+    # Agent is ready - show full chat interface
+    st.success("🤖 Agent is ready! Ask me anything about the website content.")
+    
+    # Display chat history
+    for i, message in enumerate(st.session_state.messages):
+        try:
+            with st.chat_message(message["role"]):
+                if not safe_markdown_display(message["content"], fallback_to_text=True):
+                    log_error_with_traceback(f"Chat message {i} could not be displayed safely", None)
+        except Exception as msg_e:
+            log_error_with_traceback(f"Chat message {i} display failed", msg_e)
+
+    # Chat input - ALWAYS RENDERED when agent is ready
+    if prompt := st.chat_input("Ask me anything about the website..."):
+        logger.info(f"💬 CHAT INPUT: User sent message: {prompt[:100]}...")
+        
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # Display user message immediately
+        with st.chat_message("user"):
+            if not safe_markdown_display(prompt, fallback_to_text=True):
+                log_error_with_traceback("User prompt could not be displayed safely", None)
+
+        # Generate and display assistant response
+        with st.chat_message("assistant"):
+            try:
+                logger.info("🤖 CHAT: Generating assistant response")
+                message_placeholder = st.empty()
+                full_response = ""
+                
+                try:
+                    logger.info("🔄 CHAT: Using non-streaming response...")
+                    full_response = get_non_streaming_response(st.session_state.domain_agent, prompt)
+                    
+                    if full_response:
+                        # Simulate streaming by showing chunks
+                        words = full_response.split()
+                        for i, word in enumerate(words):
+                            partial_response = " ".join(words[:i+1])
+                            message_placeholder.text(partial_response + "▌")
+                            time.sleep(0.05)
+                        
+                        # Final response without cursor
+                        message_placeholder.empty()
+                        if not safe_markdown_display(full_response, fallback_to_text=True):
+                            log_error_with_traceback("Final response could not be displayed safely", None)
+                        logger.info("✅ CHAT: Response completed successfully")
+                    else:
+                        logger.error("❌ CHAT: No response received")
+                        full_response = "I apologize, but I couldn't generate a response. Please try again."
+                        safe_error_display("No response was generated. Please try again.")
+                    
+                except Exception as e:
+                    log_error_with_traceback("Chat response failed", e)
+                    safe_error_msg = sanitize_markdown_content(str(e))
+                    safe_error_display(f"Error generating response: {safe_error_msg}")
+                    full_response = "I apologize, but I encountered an error generating a response."
 
                 # Add assistant response to chat history
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
@@ -630,6 +775,9 @@ def run_app():
         else:
             logger.info("💭 STANDBY: Showing welcome message")
             st.info("👋 Welcome! Enter a website URL in the sidebar, and I'll transform it into an AI agent you can chat with.")
+        
+        # ALWAYS show chat interface at bottom (but handle state appropriately)
+        display_chat_interface_always()
             
         logger.info("✅ APP: Application rendering completed successfully")
         
