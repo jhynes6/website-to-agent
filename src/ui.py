@@ -250,15 +250,21 @@ def run_workflow():
         status_text.text("Step 1/3: Content extraction completed!")  # No emojis
         logger.info("✅ STEP 1 COMPLETE: Content extraction finished successfully")
         
-        # Validate extracted content
-        if not result or not result.get('content'):
+        # Validate extracted content - handle graceful failures
+        content = result.get('llmstxt', '') or result.get('content', '')
+        if not result or not content:
             logger.error("❌ VALIDATION: No content in extraction result")
             safe_error_display("❌ Failed to extract content from the website. Please check the URL and try again.")
             return
         
-        logger.info(f"✅ VALIDATION: Content extracted successfully ({len(result['content'])} chars)")
-        # EMERGENCY: Use st.text instead of st.success to avoid markdown parsing  
-        st.text("Content extraction completed!")
+        # Check if this was an extraction error (graceful failure)
+        if result.get('extraction_error'):
+            logger.warning(f"⚠️ EXTRACTION WARNING: {result.get('extraction_error')}")
+            st.text("⚠️ Content extraction completed with warnings - proceeding with available content")
+        else:
+            logger.info(f"✅ VALIDATION: Content extracted successfully ({len(content)} chars)")
+            # EMERGENCY: Use st.text instead of st.success to avoid markdown parsing  
+            st.text("Content extraction completed!")
         
         # Step 2: Knowledge Extraction
         progress_bar.progress(85)
@@ -277,7 +283,7 @@ def run_workflow():
                     
                     async def extract_knowledge():
                         return await extract_domain_knowledge(
-                            content=result['content'],
+                            content=content,
                             url=url
                         )
                     
