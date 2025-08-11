@@ -330,13 +330,8 @@ def run_workflow():
             
             def run_agent_creation():
                 try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    
-                    async def create_agent():
-                        return await create_domain_agent(domain_knowledge)
-                    
-                    agent = loop.run_until_complete(create_agent())
+                    # create_domain_agent is synchronous, no async needed
+                    agent = create_domain_agent(domain_knowledge)
                     agent_queue.put(agent)
                     
                 except Exception as ae:
