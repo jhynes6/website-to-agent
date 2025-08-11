@@ -520,12 +520,7 @@ def run_app():
     logger.info("🚀 APP START: Application starting up")
     
     try:
-        st.set_page_config(
-            page_title="WebToAgent",
-            page_icon="🤖",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
+        # Page config is handled in app.py - don't duplicate it here
         
         # Initialize session state
         if "messages" not in st.session_state:
