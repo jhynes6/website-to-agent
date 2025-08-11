@@ -679,37 +679,86 @@ class Crawl4AIClient:
         return urls
     
     def _format_content(self, result, output_format: OutputFormat) -> str:
-        """Format crawled content based on requested format"""
+        """Format crawled content based on requested format with robust fallbacks"""
+        # Try multiple attribute names in order of preference
+        content_attributes = [
+            'markdown',           # Most common
+            'extracted_content',  # Alternative 
+            'cleaned_html',       # Fallback
+            'html',              # Raw HTML as last resort
+            'text',              # Plain text
+        ]
+        
         if output_format == OutputFormat.MARKDOWN:
-            return getattr(result, 'markdown', '') or getattr(result, 'cleaned_html', '') or ''
-        elif output_format == OutputFormat.HTML:
-            return getattr(result, 'html', '') or ''
-        elif output_format == OutputFormat.TEXT:
-            # Extract text from markdown or HTML
-            content = getattr(result, 'markdown', '') or getattr(result, 'cleaned_html', '') or ''
-            if content:
-                soup = BeautifulSoup(content, 'html.parser')
-                return soup.get_text(strip=True)
+            for attr in content_attributes:
+                content = getattr(result, attr, None)
+                if content and content.strip():
+                    return content.strip()
             return ''
+            
+        elif output_format == OutputFormat.HTML:
+            html_content = getattr(result, 'html', '') or getattr(result, 'cleaned_html', '') or ''
+            return html_content
+            
+        elif output_format == OutputFormat.TEXT:
+            # Extract text from any available content
+            for attr in content_attributes:
+                content = getattr(result, attr, None)
+                if content and content.strip():
+                    if attr == 'html' or 'html' in attr:
+                        # If HTML, extract text
+                        soup = BeautifulSoup(content, 'html.parser')
+                        return soup.get_text(strip=True)
+                    else:
+                        return content.strip()
+            return ''
+            
         elif output_format == OutputFormat.JSON:
-            return json.dumps({
+            # Build JSON with all available attributes
+            json_data = {
                 'url': getattr(result, 'url', ''),
                 'title': getattr(result, 'title', ''),
-                'content': getattr(result, 'markdown', ''),
-                'links': getattr(result, 'links', {}),
-                'media': getattr(result, 'media', {}),
-                'metadata': getattr(result, 'metadata', {})
-            }, indent=2)
-        elif output_format == OutputFormat.STRUCTURED:
-            return {
-                'html': getattr(result, 'html', ''),
-                'markdown': getattr(result, 'markdown', ''),
-                'links': getattr(result, 'links', {}),
-                'media': getattr(result, 'media', {}),
-                'metadata': getattr(result, 'metadata', {})
+                'success': getattr(result, 'success', False),
             }
+            
+            # Add first available content
+            for attr in content_attributes:
+                content = getattr(result, attr, None)
+                if content and content.strip():
+                    json_data['content'] = content.strip()
+                    break
+            
+            # Add other attributes if available
+            for attr_name in ['links', 'media', 'metadata']:
+                attr_value = getattr(result, attr_name, {})
+                if attr_value:
+                    json_data[attr_name] = attr_value
+                    
+            return json.dumps(json_data, indent=2)
+            
+        elif output_format == OutputFormat.STRUCTURED:
+            # Return structured data with all available content
+            structured = {}
+            for attr in content_attributes:
+                content = getattr(result, attr, None)
+                if content:
+                    structured[attr] = content
+            
+            # Add metadata
+            for attr_name in ['links', 'media', 'metadata', 'url', 'title', 'success']:
+                attr_value = getattr(result, attr_name, None)
+                if attr_value is not None:
+                    structured[attr_name] = attr_value
+                    
+            return structured
+            
         else:
-            return getattr(result, 'markdown', '') or ''
+            # Default: try to return any content we can find
+            for attr in content_attributes:
+                content = getattr(result, attr, None)
+                if content and content.strip():
+                    return content.strip()
+            return ''
     
     def _update_stats(self, success: Union[bool, int], processing_time: float):
         """Update session statistics"""
