@@ -3,6 +3,7 @@ from typing import List
 import logging
 import json
 import os
+import re
 from openai import AsyncOpenAI
 
 from src.models import Concept, Terminology, Insight, DomainKnowledge
@@ -15,6 +16,56 @@ logger = logging.getLogger('website-to-agent')
 client = AsyncOpenAI(
     api_key=OPENAI_API_KEY
 )
+
+def estimate_token_count(text: str) -> int:
+    """Estimate token count (rough approximation: ~4 chars = 1 token)"""
+    return len(text) // 4
+
+def trim_content_intelligently(content: str, max_tokens: int) -> str:
+    """
+    Trim content to fit within token limit while preserving important information.
+    
+    Strategy:
+    1. Keep the beginning (usually contains key info)
+    2. Keep some middle sections  
+    3. Keep the end (often has conclusions)
+    4. Remove excessive whitespace and repetitive content
+    """
+    logger.info(f"🔧 TRIMMING: Original content ~{estimate_token_count(content)} tokens, target: {max_tokens}")
+    
+    # Target character count (rough conversion from tokens)
+    max_chars = max_tokens * 4
+    
+    if len(content) <= max_chars:
+        return content
+    
+    # Clean up excessive whitespace first
+    content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)  # Remove excessive newlines
+    content = re.sub(r' +', ' ', content)  # Remove excessive spaces
+    
+    if len(content) <= max_chars:
+        return content
+    
+    # If still too long, use intelligent sectioning
+    # Keep 60% from beginning, 20% from middle, 20% from end
+    begin_chars = int(max_chars * 0.6)
+    middle_chars = int(max_chars * 0.2) 
+    end_chars = int(max_chars * 0.2)
+    
+    beginning = content[:begin_chars]
+    
+    # Get middle section
+    middle_start = len(content) // 2 - middle_chars // 2
+    middle_end = middle_start + middle_chars
+    middle = content[middle_start:middle_end]
+    
+    # Get end section
+    ending = content[-end_chars:]
+    
+    trimmed = f"{beginning}\n\n[... CONTENT TRIMMED FOR ANALYSIS ...]\n\n{middle}\n\n[... CONTENT TRIMMED FOR ANALYSIS ...]\n\n{ending}"
+    
+    logger.info(f"✂️ TRIMMED: Content reduced to ~{estimate_token_count(trimmed)} tokens")
+    return trimmed
 
 async def extract_domain_knowledge(content: str, url: str) -> DomainKnowledge:
     """
@@ -74,20 +125,104 @@ Website content to analyze:
 
 Source: {url}"""
     
-    # Run the extraction
+    # Run the extraction (with intelligent retry on context length error)
     logger.info("🤖 Running knowledge extraction with OpenAI...")
+    
+    # Check estimated token count first
+    estimated_tokens = estimate_token_count(prompt)
+    logger.info(f"📏 Estimated prompt tokens: {estimated_tokens}")
+    
+    original_content = content
+    attempt = 1
+    max_attempts = 3
+    
+    while attempt <= max_attempts:
+        try:
+            logger.info(f"🔄 Attempt {attempt}/{max_attempts} - Content length: {len(content)} chars")
+            
+            # Recreate prompt with potentially trimmed content
+            if attempt > 1:
+                # Calculate how much we need to trim (leave room for prompt template + response)
+                max_content_tokens = 120000  # Conservative limit leaving room for prompt template
+                content = trim_content_intelligently(original_content, max_content_tokens)
+                
+                prompt = f"""Extract comprehensive domain knowledge from the provided website content.
+
+Identify and extract:
+1. Core concepts and their relationships
+2. Key terminology and definitions  
+3. Important insights or principles
+
+For each concept, assess its centrality/importance to the domain.
+For terminology, provide clear definitions and examples when available.
+For insights, evaluate confidence based on how explicitly they're stated.
+
+Return your response as a JSON object with this exact structure:
+{{
+    "core_concepts": [
+        {{
+            "name": "concept name",
+            "description": "detailed description",
+            "related_concepts": ["related concept 1", "related concept 2"],
+            "centrality": 0.8
+        }}
+    ],
+    "terminology": [
+        {{
+            "term": "technical term",
+            "definition": "clear definition",
+            "context": "where this term is used",
+            "examples": ["example1", "example2"]
+        }}
+    ],
+    "key_insights": [
+        {{
+            "insight": "key insight or principle",
+            "topics": ["topic1", "topic2"],
+            "confidence": 0.9
+        }}
+    ]
+}}
+
+Website content to analyze:
+{content}
+
+Source: {url}"""
+            
+            response = await client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are an expert knowledge extractor. Always respond with valid JSON only."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.2,
+                max_tokens=4096,
+            )
+            
+            # If we get here, the API call was successful
+            break
+            
+        except Exception as api_error:
+            error_message = str(api_error)
+            
+            # Check if it's a context length error
+            if "context_length_exceeded" in error_message or "maximum context length" in error_message:
+                logger.warning(f"⚠️ CONTEXT LENGTH ERROR (attempt {attempt}): {error_message}")
+                
+                if attempt < max_attempts:
+                    logger.info(f"🔄 RETRYING: Will trim content and try again...")
+                    attempt += 1
+                    continue
+                else:
+                    logger.error(f"❌ FINAL ATTEMPT FAILED: Unable to fit content within context limit after {max_attempts} attempts")
+                    raise api_error
+            else:
+                # Different error - don't retry
+                logger.error(f"❌ API ERROR: {error_message}")
+                raise api_error
+    
+    # Parse the response (outside the retry loop)
     try:
-        response = await client.chat.completions.create(
-            model=DEFAULT_MODEL,
-            messages=[
-                {"role": "system", "content": "You are an expert knowledge extractor. Always respond with valid JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.2,
-            max_tokens=4096,
-        )
-        
-        # Parse the response
         content_text = response.choices[0].message.content.strip()
         
         # Try to extract JSON from the response
