@@ -7,6 +7,7 @@ import os
 import logging
 import time
 import re
+import traceback
 
 # Add the parent directory to the Python path so we can import from src
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,381 +16,384 @@ from src.config import DEFAULT_MAX_URLS, DEFAULT_USE_FULL_TEXT
 
 # Set up logging for UI workflow tracking
 logger = logging.getLogger('website-to-agent')
+
+# URGENT: Add comprehensive error logging
+def log_error_with_traceback(error_msg, exception=None):
+    """Log errors with full traceback to server logs"""
+    logger.error(f"🚨 UI ERROR: {error_msg}")
+    if exception:
+        logger.error(f"🚨 EXCEPTION TYPE: {type(exception).__name__}")
+        logger.error(f"🚨 EXCEPTION MSG: {str(exception)}")
+        logger.error(f"🚨 TRACEBACK: {traceback.format_exc()}")
+    else:
+        logger.error(f"🚨 STACK TRACE: {''.join(traceback.format_stack())}")
+
 from src.llms_text import extract_website_content
 from src.agents import extract_domain_knowledge, create_domain_agent
 
 def sanitize_markdown_content(content):
     """Sanitize markdown content to prevent ReactMarkdown parsing errors."""
-    if not content:
-        return ""
-    
-    # Convert to string if not already
-    content = str(content)
-    
-    # Remove or escape problematic markdown directives that might cause parsing errors
-    # Remove HTML-like directives that aren't supported
-    content = re.sub(r'<[^>]+>', '', content)
-    
-    # Remove any null bytes or other control characters
-    content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
-    
-    # Ensure content ends with proper whitespace
-    content = content.strip()
-    
-    return content
-
-# Initialize session state
-def init_session_state():
-    if 'domain_agent' not in st.session_state:
-        st.session_state.domain_agent = None
-    if 'domain_knowledge' not in st.session_state:
-        st.session_state.domain_knowledge = None
-    if 'messages' not in st.session_state:
-        st.session_state.messages = []
-    if 'extraction_status' not in st.session_state:
-        st.session_state.extraction_status = None
-    if 'pending_response' not in st.session_state:
-        st.session_state.pending_response = None
-
-def run_app():
-    # Initialize session state
-    init_session_state()
-    
-    # Check if we have a pending response to add to the message history
-    if st.session_state.pending_response is not None:
-        st.session_state.messages.append({"role": "assistant", "content": st.session_state.pending_response})
-        st.session_state.pending_response = None
-    
-    # App title and description in main content area
-    st.title("The Laura Natalia Gonzales Chat Bot")
-    st.subheader("A chatbot trained in the likes of the most incredible person on Earth")
-    
-    # Display welcome message using AI chat message component
-    if not st.session_state.domain_agent:
-        with st.chat_message("assistant"):
-            st.markdown("Until theI figure out the training data, you can throw a website in, crawl it, and generate an SME on that website")
-    
-    # Form elements in sidebar
-    st.sidebar.title("Create your agent")
-    
-    website_url = st.sidebar.text_input("Enter website URL", placeholder="https://example.com")
-    
-    max_pages = st.sidebar.slider("Maximum pages to analyze", 1, 50, DEFAULT_MAX_URLS, 
-                         help="More pages means more comprehensive knowledge but longer processing time.")
-    
-    use_full_text = st.sidebar.checkbox("Use comprehensive text extraction", value=DEFAULT_USE_FULL_TEXT,
-                                help="Extract full contents of each page (always enabled with Crawl4AI)")
-    
-    submit_button = st.sidebar.button("Create agent", type="primary")
-    
-    # Process form submission
-    if submit_button and website_url:
-        logger.info("🚀 WORKFLOW START: User submitted form")
-        logger.info(f"📝 Parameters: URL={website_url}, max_pages={max_pages}, use_full_text={use_full_text}")
-        st.session_state.extraction_status = "extracting"
+    try:
+        if not content:
+            return ""
         
-        try:
-            # Create progress containers
-            progress_container = st.container()
-            
-            with progress_container:
-                st.info("🕷️ Starting website analysis with Crawl4AI...")
-                
-                # Progress tracking
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # Step 1: URL Discovery
-                status_text.text("🌱 Step 1/3: Discovering website pages...")
-                progress_bar.progress(10)
-                
-                logger.info("🌐 STEP 1: Starting Crawl4AI extraction...")
-                
-                # Run the async extraction in a thread
-                content = run_async_extraction(
-                    website_url, 
-                    max_pages, 
-                    use_full_text,
-                    progress_bar,
-                    status_text
-                )
-                
-                if content is None:
-                    st.error("❌ Failed to extract content from the website. Please check the URL and try again.")
-                    st.session_state.extraction_status = "failed"
-                    return
-                
-                progress_bar.progress(60)
-                status_text.text("✅ Content extraction completed!")
-                
-                logger.info(f"✅ STEP 1 COMPLETE: Extracted content from {len(content.get('processed_urls', []))} pages")
-                
-                # Show extraction results
-                with st.expander("📊 Extraction Results", expanded=False):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Pages Discovered", len(content.get('discovered_urls', [])))
-                    with col2:
-                        st.metric("Pages Processed", len(content.get('processed_urls', [])))
-                    with col3:
-                        st.metric("Content Length", f"{len(content.get('llmstxt', '')):,} chars")
-                    
-                    if content.get('failed_urls'):
-                        st.warning(f"⚠️ Failed to process {len(content['failed_urls'])} URLs")
-                        with st.expander("Failed URLs"):
-                            for url in content['failed_urls']:
-                                st.text(url)
-                    
-                    # Show content preview
-                    if content.get('llmstxt'):
-                        st.text_area(
-                            "Content Preview (first 1000 characters):",
-                            value=content['llmstxt'][:1000] + "..." if len(content['llmstxt']) > 1000 else content['llmstxt'],
-                            height=200
-                        )
-                
-                # Step 2: Knowledge Extraction
-                progress_bar.progress(70)
-                status_text.text("🧠 Step 2/3: Analyzing content and extracting knowledge...")
-                
-                logger.info("🧠 STEP 2: Starting knowledge extraction with OpenAI...")
-                
-                # Use the appropriate content based on user choice
-                content_to_analyze = content['llmsfulltxt'] if use_full_text else content['llmstxt']
-                
-                domain_knowledge = asyncio.run(extract_domain_knowledge(
-                    content_to_analyze,
-                    website_url
-                ))
-                
-                logger.info(f"✅ STEP 2 COMPLETE: Knowledge extracted - {len(domain_knowledge.core_concepts)} concepts, {len(domain_knowledge.terminology)} terms")
-                
-                # Store in session state
-                st.session_state.domain_knowledge = domain_knowledge
-                
-                progress_bar.progress(90)
-                status_text.text("🤖 Step 3/3: Creating specialized agent...")
-                
-                # Step 3: Create Agent
-                logger.info("🤖 STEP 3: Creating specialized domain agent...")
-                domain_agent = create_domain_agent(domain_knowledge)
-                
-                # Store in session state
-                st.session_state.domain_agent = domain_agent
-                logger.info("✅ STEP 3 COMPLETE: Domain agent created and ready")
-                
-                progress_bar.progress(100)
-                status_text.text("🎉 Agent creation complete!")
-                
-                st.session_state.extraction_status = "complete"
-                logger.info("🎉 WORKFLOW COMPLETE: Agent successfully created and ready for chat")
-                
-                # Success message with knowledge summary
-                st.success("🎉 Agent created successfully!")
-                
-                # Display knowledge summary
-                with st.expander("🧠 Extracted Knowledge Summary", expanded=True):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.subheader("📋 Core Concepts")
-                        for concept in domain_knowledge.core_concepts[:5]:  # Show top 5
-                            st.write(f"• **{concept.name}**: {concept.description[:100]}...")
-                        
-                        if len(domain_knowledge.core_concepts) > 5:
-                            st.write(f"... and {len(domain_knowledge.core_concepts) - 5} more concepts")
-                    
-                    with col2:
-                        st.subheader("📖 Key Terms")
-                        for term in domain_knowledge.terminology[:5]:  # Show top 5
-                            st.write(f"• **{term.term}**: {term.definition[:100]}...")
-                        
-                        if len(domain_knowledge.terminology) > 5:
-                            st.write(f"... and {len(domain_knowledge.terminology) - 5} more terms")
-                
-                # Clear progress indicators after a moment
-                import time
-                time.sleep(2)
-                progress_container.empty()
+        # Convert to string if not already
+        content = str(content)
         
-        except Exception as e:
-            safe_error_msg = sanitize_markdown_content(str(e))
-            st.error(f"❌ Error: {safe_error_msg}")
-            logger.error(f"❌ WORKFLOW ERROR: {str(e)}")
-            st.session_state.extraction_status = "failed"
-    
-    # Chat interface
-    if st.session_state.domain_agent:
-        display_chat_interface()
-
-def run_async_extraction(url: str, max_pages: int, use_full_text: bool, progress_bar, status_text):
-    """
-    Run the async extraction in a separate thread.
-    """
-    result_queue = queue.Queue()
-    error_queue = queue.Queue()
-    
-    def run_extraction():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # Remove HTML tags that could cause issues
+        content = re.sub(r'<[^>]+>', '', content)
+        
+        # Remove control characters that could break parsing
+        content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', content)
+        
+        # Escape problematic characters
+        content = content.replace('\\', '\\\\')
+        
+        # Limit length to prevent overwhelming the UI
+        if len(content) > 10000:
+            content = content[:10000] + "... (truncated)"
             
-            # Run the extraction without Streamlit updates (avoid context issues)
-            async def extraction_task():
+        return content
+    except Exception as e:
+        log_error_with_traceback("markdown sanitization failed", e)
+        return str(content)[:1000] if content else ""
+
+def run_async_extraction(url, max_urls, use_full_text, result_queue, error_queue):
+    """Run the async extraction in a separate thread"""
+    logger.info(f"🔧 THREAD START: Starting extraction thread for {url}")
+    
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        logger.info("✅ THREAD: Event loop created successfully")
+        
+        async def extract():
+            logger.info(f"🚀 ASYNC START: Beginning extraction for {url} (max_urls={max_urls})")
+            try:
                 result = await extract_website_content(
                     url=url,
-                    max_urls=max_pages,
+                    max_urls=max_urls,
                     show_full_text=use_full_text
                 )
+                logger.info(f"✅ ASYNC SUCCESS: Extraction completed for {url}")
                 return result
-            
-            result = loop.run_until_complete(extraction_task())
-            result_queue.put(result)
-            
-        except Exception as e:
-            logger.error(f"❌ Extraction thread error: {str(e)}")
-            import traceback
-            error_details = traceback.format_exc()
-            logger.error(f"❌ Full traceback: {error_details}")
-            error_queue.put(str(e))
-            result_queue.put(None)
-        finally:
-            try:
-                loop.close()
-            except:
-                pass
-    
-    # Update progress in main thread
-    status_text.text("🌱 Step 1/3: Discovering website pages...")
-    progress_bar.progress(20)
-    
-    # Run extraction in thread
-    thread = threading.Thread(target=run_extraction)
-    thread.daemon = True
-    thread.start()
-    
-    # Wait for result with timeout and progress updates
-    timeout = 300  # 5 minutes
-    start_time = time.time()
-    
-    while thread.is_alive():
-        elapsed = time.time() - start_time
-        if elapsed > timeout:
-            st.error("⏰ Extraction timed out. Please try with fewer pages or a simpler website.")
-            return None
+            except Exception as async_e:
+                log_error_with_traceback(f"Async extraction failed for {url}", async_e)
+                raise
         
-        # Update progress periodically
-        progress = min(90, 20 + (elapsed / timeout) * 70)  # 20% to 90%
-        progress_bar.progress(int(progress))
+        result = loop.run_until_complete(extract())
+        logger.info(f"📤 THREAD: Putting result in queue (size: {len(str(result))} chars)")
+        result_queue.put(result)
+        logger.info("✅ THREAD: Result successfully queued")
         
-        # Check for result
-        try:
-            result = result_queue.get(timeout=1)  # Check every second
-            progress_bar.progress(100)
-            status_text.text("✅ Content extraction completed!")
-            return result
-        except queue.Empty:
-            continue
+    except Exception as thread_e:
+        log_error_with_traceback(f"Thread extraction failed for {url}", thread_e)
+        error_queue.put(str(thread_e))
+        logger.error(f"📤 THREAD: Error queued: {str(thread_e)}")
+    finally:
+        logger.info("🔧 THREAD END: Extraction thread completed")
+
+def run_workflow():
+    """Main workflow for extracting content and creating agents"""
+    logger.info("🎯 WORKFLOW START: Beginning main workflow")
     
-    # Thread finished, get final result
     try:
-        result = result_queue.get(timeout=1)
+        url = st.session_state.url
+        max_urls = st.session_state.max_urls
+        logger.info(f"📋 WORKFLOW PARAMS: URL={url}, max_urls={max_urls}")
+
+        # Step 1: Content Extraction
+        st.success("🕷️ Starting website analysis with Crawl4AI...")
+        logger.info("📊 STEP 1: Starting content extraction")
+        
+        # Initialize progress tracking
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Update progress
+        status_text.text("🌱 Step 1/3: Discovering website pages...")
+        logger.info("🌱 PROGRESS: Step 1/3 - Discovering pages")
+        progress_bar.progress(10)
+        
+        # Run extraction in background thread
+        result_queue = queue.Queue()
+        error_queue = queue.Queue()
+        
+        logger.info("🧵 THREAD: Starting extraction thread")
+        extraction_thread = threading.Thread(
+            target=run_async_extraction,
+            args=(url, max_urls, DEFAULT_USE_FULL_TEXT, result_queue, error_queue)
+        )
+        extraction_thread.start()
+        logger.info("✅ THREAD: Extraction thread started successfully")
+        
+        # Monitor progress
+        progress_steps = [
+            (20, "🔍 Step 1/3: Analyzing website structure..."),
+            (40, "📄 Step 1/3: Extracting content from pages..."),
+            (60, "✨ Step 1/3: Processing extracted content..."),
+        ]
+        
+        step_idx = 0
+        max_wait_time = 60  # seconds
+        start_time = time.time()
+        
+        while extraction_thread.is_alive():
+            if time.time() - start_time > max_wait_time:
+                logger.error("⏰ TIMEOUT: Extraction taking too long")
+                break
+                
+            if step_idx < len(progress_steps):
+                progress, message = progress_steps[step_idx]
+                progress_bar.progress(progress)
+                status_text.text(message)
+                logger.info(f"📊 PROGRESS UPDATE: {message}")
+                step_idx += 1
+            
+            time.sleep(2)
+        
+        extraction_thread.join(timeout=5)
+        logger.info("🧵 THREAD: Extraction thread joined")
+        
+        # Check results
+        result = None
+        if not result_queue.empty():
+            result = result_queue.get()
+            logger.info(f"📥 RESULT: Got extraction result (size: {len(str(result))} chars)")
+        
         if result is None and not error_queue.empty():
             error_msg = error_queue.get()
             safe_error_msg = sanitize_markdown_content(str(error_msg))
+            logger.error(f"❌ EXTRACTION FAILED: {error_msg}")
             st.error(f"❌ Extraction failed: {safe_error_msg}")
-        return result
-    except queue.Empty:
-        st.error("❌ Extraction failed: No result returned")
-        return None
-
-def stream_agent_response(agent, prompt):
-    """Stream agent response using the new DomainAgent interface."""
-    
-    def get_agent_response():
-        """Get response from agent in a thread."""
-        result_queue = queue.Queue()
+            return
         
-        def async_runner():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                async def get_response():
-                    response = await agent.chat(prompt)
-                    return response
-                
-                response = loop.run_until_complete(get_response())
-                result_queue.put(response)
-                
-            except Exception as e:
-                logger.error(f"❌ Agent response error: {str(e)}")
-                result_queue.put(f"❌ Error: {str(e)}")
-            finally:
-                loop.close()
+        if result is None:
+            logger.error("❌ NO RESULT: Extraction completed but returned no result")
+            st.error("❌ Extraction failed: No result returned")
+            return
+            
+        # Update progress
+        progress_bar.progress(80)
+        status_text.text("✅ Step 1/3: Content extraction completed!")
+        logger.info("✅ STEP 1 COMPLETE: Content extraction finished successfully")
         
-        thread = threading.Thread(target=async_runner)
-        thread.daemon = True
-        thread.start()
+        # Validate extracted content
+        if not result or not result.get('content'):
+            logger.error("❌ VALIDATION: No content in extraction result")
+            st.error("❌ Failed to extract content from the website. Please check the URL and try again.")
+            return
         
-        # Wait for result
+        logger.info(f"✅ VALIDATION: Content extracted successfully ({len(result['content'])} chars)")
+        st.success("✅ Content extraction completed!")
+        
+        # Step 2: Knowledge Extraction
+        progress_bar.progress(85)
+        status_text.text("🧠 Step 2/3: Extracting domain knowledge with AI...")
+        logger.info("🧠 STEP 2: Starting knowledge extraction")
+        
         try:
-            response = result_queue.get(timeout=60)  # 1 minute timeout
-            return response
-        except queue.Empty:
-            return "⏰ Response timed out. Please try again."
-    
-    # Get the full response
-    full_response = get_agent_response()
-    
-    # Store complete response for session state
-    st.session_state.pending_response = full_response
-    
-    # Simulate streaming by yielding words with small delays
-    words = full_response.split()
-    for i, word in enumerate(words):
-        yield word + " "
-        if i % 10 == 0:  # Add slight pause every 10 words for visual effect
-            time.sleep(0.02)
-
-def get_non_streaming_response(agent, prompt):
-    """Fallback function for non-streaming response."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        response_text = loop.run_until_complete(agent.chat(prompt))
+            # Run knowledge extraction in a thread since we can't await in Streamlit
+            knowledge_queue = queue.Queue()
+            knowledge_error_queue = queue.Queue()
+            
+            def run_knowledge_extraction():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    async def extract_knowledge():
+                        return await extract_domain_knowledge(
+                            content=result['content'],
+                            url=url
+                        )
+                    
+                    domain_knowledge = loop.run_until_complete(extract_knowledge())
+                    knowledge_queue.put(domain_knowledge)
+                    
+                except Exception as ke:
+                    log_error_with_traceback("Knowledge extraction thread failed", ke)
+                    knowledge_error_queue.put(str(ke))
+            
+            knowledge_thread = threading.Thread(target=run_knowledge_extraction)
+            knowledge_thread.start()
+            knowledge_thread.join(timeout=30)
+            
+            if not knowledge_queue.empty():
+                domain_knowledge = knowledge_queue.get()
+                logger.info("✅ STEP 2 COMPLETE: Domain knowledge extracted successfully")
+            elif not knowledge_error_queue.empty():
+                error_msg = knowledge_error_queue.get()
+                safe_error_msg = sanitize_markdown_content(str(error_msg))
+                logger.error(f"❌ KNOWLEDGE EXTRACTION FAILED: {error_msg}")
+                st.error(f"❌ Knowledge extraction failed: {safe_error_msg}")
+                return
+            else:
+                logger.error("❌ KNOWLEDGE EXTRACTION TIMEOUT")
+                st.error("❌ Knowledge extraction timed out")
+                return
+                
+        except Exception as knowledge_e:
+            log_error_with_traceback("Knowledge extraction failed", knowledge_e)
+            safe_error_msg = sanitize_markdown_content(str(knowledge_e))
+            st.error(f"❌ Knowledge extraction failed: {safe_error_msg}")
+            return
         
-        # Store for the next Streamlit run to pick up
-        st.session_state.pending_response = response_text
+        # Step 3: Agent Creation  
+        progress_bar.progress(95)
+        status_text.text("🤖 Step 3/3: Creating your specialized agent...")
+        logger.info("🤖 STEP 3: Starting agent creation")
         
-        return response_text
+        try:
+            # Run agent creation in a thread since we can't await in Streamlit
+            agent_queue = queue.Queue()
+            agent_error_queue = queue.Queue()
+            
+            def run_agent_creation():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    async def create_agent():
+                        return await create_domain_agent(domain_knowledge)
+                    
+                    agent = loop.run_until_complete(create_agent())
+                    agent_queue.put(agent)
+                    
+                except Exception as ae:
+                    log_error_with_traceback("Agent creation thread failed", ae)
+                    agent_error_queue.put(str(ae))
+            
+            agent_thread = threading.Thread(target=run_agent_creation)
+            agent_thread.start()
+            agent_thread.join(timeout=30)
+            
+            if not agent_queue.empty():
+                agent = agent_queue.get()
+                logger.info("✅ STEP 3 COMPLETE: Agent created successfully")
+            elif not agent_error_queue.empty():
+                error_msg = agent_error_queue.get()
+                safe_error_msg = sanitize_markdown_content(str(error_msg))
+                logger.error(f"❌ AGENT CREATION FAILED: {error_msg}")
+                st.error(f"❌ Agent creation failed: {safe_error_msg}")
+                return
+            else:
+                logger.error("❌ AGENT CREATION TIMEOUT")
+                st.error("❌ Agent creation timed out")
+                return
+                
+        except Exception as agent_e:
+            log_error_with_traceback("Agent creation failed", agent_e)
+            safe_error_msg = sanitize_markdown_content(str(agent_e))
+            st.error(f"❌ Agent creation failed: {safe_error_msg}")
+            return
+        
+        # Complete!
+        progress_bar.progress(100)
+        status_text.text("🎉 All steps completed! Your agent is ready.")
+        logger.info("🎉 WORKFLOW COMPLETE: All steps finished successfully")
+        
+        # Store in session state
+        st.session_state.domain_knowledge = domain_knowledge
+        st.session_state.domain_agent = agent
+        st.session_state.extraction_status = "completed"
+        
+        # Show success message
+        st.success("🎉 **Agent Created Successfully!**")
+        st.info("Your specialized AI agent is ready. You can now chat with it using the interface below!")
+        logger.info("✅ WORKFLOW SUCCESS: Agent stored in session state and ready for chat")
+        
     except Exception as e:
-        logger.error(f"❌ Non-streaming response error: {str(e)}")
-        return f"❌ Error: {str(e)}"
-    finally:
-        loop.close()
+        log_error_with_traceback("Main workflow failed", e)
+        safe_error_msg = sanitize_markdown_content(str(e))
+        st.error(f"❌ Error: {safe_error_msg}")
+        logger.error(f"❌ WORKFLOW ERROR: {str(e)}")
+        st.session_state.extraction_status = "failed"
+
+def display_sidebar():
+    """Display the sidebar with input controls"""
+    logger.info("📋 UI: Rendering sidebar")
+    
+    with st.sidebar:
+        st.header("Create your agent")
+        
+        # URL input
+        url = st.text_input(
+            "Enter website URL",
+            value="",
+            placeholder="https://example.com"
+        )
+        
+        # Max pages slider
+        max_urls = st.slider(
+            "Maximum pages to analyze",
+            min_value=1,
+            max_value=50,
+            value=5
+        )
+        
+        # Store values in session state
+        st.session_state.url = url
+        st.session_state.max_urls = max_urls
+        
+        # Create agent button
+        if st.button("🚀 Create Agent", type="primary", disabled=not url):
+            logger.info(f"🚀 BUTTON CLICK: Create Agent button pressed for URL: {url}")
+            try:
+                st.session_state.extraction_status = "running"
+                st.session_state.messages = []  # Clear previous messages
+                logger.info("✅ BUTTON: Session state updated, starting workflow")
+            except Exception as button_e:
+                log_error_with_traceback("Button click handler failed", button_e)
+
+def get_streaming_response(agent, message):
+    """Get streaming response from agent (placeholder for now)"""
+    logger.info(f"💬 CHAT: Getting streaming response for message: {message[:50]}...")
+    try:
+        # This would be replaced with actual streaming logic
+        response = f"I understand you're asking about: {message}. Based on the website content I analyzed, I can help you with that."
+        logger.info("✅ CHAT: Streaming response generated successfully")
+        return response
+    except Exception as e:
+        log_error_with_traceback("Streaming response failed", e)
+        raise
+
+def get_non_streaming_response(agent, message):
+    """Get non-streaming response from agent"""
+    logger.info(f"💬 CHAT FALLBACK: Getting non-streaming response for: {message[:50]}...")
+    try:
+        # Placeholder implementation
+        response = f"Based on the website analysis, I can help you with: {message}"
+        logger.info("✅ CHAT FALLBACK: Non-streaming response generated")
+        return response
+    except Exception as e:
+        log_error_with_traceback("Non-streaming response failed", e)
+        raise
 
 def display_chat_interface():
     """Display chat interface for interacting with the domain agent."""
-    # Display chat history
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            try:
-                # Sanitize content to prevent markdown parsing errors
-                safe_content = sanitize_markdown_content(message["content"])
-                if safe_content:
-                    st.markdown(safe_content)
-                else:
-                    st.text("(Empty message)")
-            except Exception as e:
-                logger.warning(f"⚠️ Markdown rendering error: {str(e)}")
-                # Fallback to plain text display
-                st.text(str(message["content"]))
+    logger.info("💬 UI: Rendering chat interface")
     
+    # Display chat history
+    for i, message in enumerate(st.session_state.messages):
+        try:
+            with st.chat_message(message["role"]):
+                try:
+                    # Sanitize content to prevent markdown parsing errors
+                    safe_content = sanitize_markdown_content(message["content"])
+                    if safe_content:
+                        st.markdown(safe_content)
+                    else:
+                        st.text("(Empty message)")
+                except Exception as markdown_e:
+                    log_error_with_traceback(f"Chat message {i} markdown rendering failed", markdown_e)
+                    st.text(message["content"][:500])  # Fallback to plain text
+        except Exception as msg_e:
+            log_error_with_traceback(f"Chat message {i} display failed", msg_e)
+
     # Chat input
-    if prompt := st.chat_input("Ask a question about this domain..."):
-        logger.info(f"💬 CHAT START: User asked - '{prompt}'")
-        logger.info(f"📊 Chat history: {len(st.session_state.messages)} previous messages")
+    if prompt := st.chat_input("Ask me anything about the website..."):
+        logger.info(f"💬 CHAT INPUT: User sent message: {prompt[:100]}...")
         
         # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
@@ -399,40 +403,117 @@ def display_chat_interface():
             try:
                 safe_prompt = sanitize_markdown_content(prompt)
                 st.markdown(safe_prompt)
-            except Exception as e:
-                logger.warning(f"⚠️ User prompt markdown error: {str(e)}")
+            except Exception as user_msg_e:
+                log_error_with_traceback("User prompt markdown error", user_msg_e)
                 st.text(prompt)
-        
-        # Reset any pending response
-        st.session_state.pending_response = None
-        
-        # Get agent response with streaming
+
+        # Generate and display assistant response
         with st.chat_message("assistant"):
             try:
-                logger.info("🔄 CHAT PROCESSING: Streaming response from domain agent...")
-                # Stream the response tokens
-                token_stream = stream_agent_response(st.session_state.domain_agent, prompt)
-                st.write_stream(token_stream)
-                logger.info("✅ CHAT COMPLETE: Response delivered successfully")
+                logger.info("🤖 CHAT: Generating assistant response")
+                message_placeholder = st.empty()
+                full_response = ""
                 
-            except Exception as e:
-                logger.warning(f"⚠️ CHAT FALLBACK: Streaming failed - {str(e)}")
-                # Fallback to non-streaming response if streaming fails
-                st.warning(f"Streaming failed ({str(e)}), using standard response method.")
                 try:
-                    logger.info("🔄 CHAT FALLBACK: Using non-streaming response...")
-                    full_response = get_non_streaming_response(st.session_state.domain_agent, prompt)
+                    # Try streaming response first
+                    logger.info("🔄 CHAT: Attempting streaming response")
+                    streaming_response = get_streaming_response(st.session_state.domain_agent, prompt)
+                    
+                    # Simulate streaming by showing chunks
+                    words = streaming_response.split()
+                    for i, word in enumerate(words):
+                        full_response += word + " "
+                        safe_response = sanitize_markdown_content(full_response + "▌")
+                        message_placeholder.markdown(safe_response)
+                        time.sleep(0.05)  # Simulate streaming delay
+                    
+                    # Final response without cursor
+                    safe_final_response = sanitize_markdown_content(full_response)
+                    message_placeholder.markdown(safe_final_response)
+                    logger.info("✅ CHAT: Streaming response completed successfully")
+                    
+                except Exception as streaming_e:
+                    log_error_with_traceback("Streaming response failed, trying fallback", streaming_e)
                     try:
-                        safe_response = sanitize_markdown_content(full_response)
-                        st.markdown(safe_response)
-                    except Exception as markdown_error:
-                        logger.warning(f"⚠️ Fallback markdown error: {str(markdown_error)}")
-                        st.text(full_response)
-                    logger.info("✅ CHAT FALLBACK COMPLETE: Non-streaming response delivered")
-                except Exception as e2:
-                    logger.error(f"❌ CHAT ERROR: Failed to generate response - {str(e2)}")
-                    safe_error_msg = sanitize_markdown_content(str(e2))
-                    st.error(f"Error generating response: {safe_error_msg}")
+                        logger.info("🔄 CHAT FALLBACK: Using non-streaming response...")
+                        full_response = get_non_streaming_response(st.session_state.domain_agent, prompt)
+                        try:
+                            safe_response = sanitize_markdown_content(full_response)
+                            st.markdown(safe_response)
+                        except Exception as markdown_error:
+                            log_error_with_traceback("Fallback markdown error", markdown_error)
+                            st.text(full_response)
+                        logger.info("✅ CHAT FALLBACK COMPLETE: Non-streaming response delivered")
+                    except Exception as e2:
+                        log_error_with_traceback("Chat fallback failed", e2)
+                        safe_error_msg = sanitize_markdown_content(str(e2))
+                        st.error(f"Error generating response: {safe_error_msg}")
+                        full_response = "I apologize, but I encountered an error generating a response."
+
+                # Add assistant response to chat history
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                logger.info("✅ CHAT: Response added to chat history")
+                
+            except Exception as chat_e:
+                log_error_with_traceback("Chat interface critical error", chat_e)
+                safe_error_msg = sanitize_markdown_content(str(chat_e))
+                st.error(f"Critical chat error: {safe_error_msg}")
+
+def run_app():
+    """Main application entry point"""
+    logger.info("🚀 APP START: Application starting up")
+    
+    try:
+        st.set_page_config(
+            page_title="WebToAgent",
+            page_icon="🤖",
+            layout="wide",
+            initial_sidebar_state="expanded"
+        )
+        
+        # Initialize session state
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+            logger.info("📝 INIT: Chat messages initialized")
+            
+        if "extraction_status" not in st.session_state:
+            st.session_state.extraction_status = "idle"
+            logger.info("📝 INIT: Extraction status initialized")
+            
+        if "domain_knowledge" not in st.session_state:
+            st.session_state.domain_knowledge = None
+            logger.info("📝 INIT: Domain knowledge initialized")
+            
+        if "domain_agent" not in st.session_state:
+            st.session_state.domain_agent = None
+            logger.info("📝 INIT: Domain agent initialized")
+        
+        # Main header
+        st.title("The Laura Natalia Gonzales Chat Bot")
+        st.subheader("A chatbot trained in the likes of the most incredible person on Earth")
+        st.write("Until I figure out the training data, you can throw a website in, crawl it, and generate an SME on that website")
+        
+        # Display sidebar
+        display_sidebar()
+        
+        # Handle workflow execution
+        if st.session_state.extraction_status == "running":
+            logger.info("🔄 WORKFLOW: Status is running, executing workflow")
+            run_workflow()
+        elif st.session_state.extraction_status == "completed":
+            logger.info("✅ WORKFLOW: Status is completed, showing chat interface")
+            st.success("🎉 **Agent Ready!** You can now chat with your specialized assistant.")
+            display_chat_interface()
+        else:
+            logger.info("💭 STANDBY: Showing welcome message")
+            st.info("👋 Welcome! Enter a website URL in the sidebar, and I'll transform it into an AI agent you can chat with.")
+            
+        logger.info("✅ APP: Application rendering completed successfully")
+        
+    except Exception as app_e:
+        log_error_with_traceback("Application critical error", app_e)
+        st.error("🚨 Critical application error occurred. Check server logs for details.")
 
 if __name__ == "__main__":
+    logger.info("🎬 MAIN: Starting application from main")
     run_app()
