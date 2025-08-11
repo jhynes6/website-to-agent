@@ -6,6 +6,7 @@ import sys
 import os
 import logging
 import time
+import re
 
 # Add the parent directory to the Python path so we can import from src
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,6 +17,26 @@ from src.config import DEFAULT_MAX_URLS, DEFAULT_USE_FULL_TEXT
 logger = logging.getLogger('website-to-agent')
 from src.llms_text import extract_website_content
 from src.agents import extract_domain_knowledge, create_domain_agent
+
+def sanitize_markdown_content(content):
+    """Sanitize markdown content to prevent ReactMarkdown parsing errors."""
+    if not content:
+        return ""
+    
+    # Convert to string if not already
+    content = str(content)
+    
+    # Remove or escape problematic markdown directives that might cause parsing errors
+    # Remove HTML-like directives that aren't supported
+    content = re.sub(r'<[^>]+>', '', content)
+    
+    # Remove any null bytes or other control characters
+    content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
+    
+    # Ensure content ends with proper whitespace
+    content = content.strip()
+    
+    return content
 
 # Initialize session state
 def init_session_state():
@@ -351,7 +372,17 @@ def display_chat_interface():
     # Display chat history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            try:
+                # Sanitize content to prevent markdown parsing errors
+                safe_content = sanitize_markdown_content(message["content"])
+                if safe_content:
+                    st.markdown(safe_content)
+                else:
+                    st.text("(Empty message)")
+            except Exception as e:
+                logger.warning(f"⚠️ Markdown rendering error: {str(e)}")
+                # Fallback to plain text display
+                st.text(str(message["content"]))
     
     # Chat input
     if prompt := st.chat_input("Ask a question about this domain..."):
@@ -363,7 +394,12 @@ def display_chat_interface():
         
         # Display user message
         with st.chat_message("user"):
-            st.markdown(prompt)
+            try:
+                safe_prompt = sanitize_markdown_content(prompt)
+                st.markdown(safe_prompt)
+            except Exception as e:
+                logger.warning(f"⚠️ User prompt markdown error: {str(e)}")
+                st.text(prompt)
         
         # Reset any pending response
         st.session_state.pending_response = None
@@ -384,7 +420,12 @@ def display_chat_interface():
                 try:
                     logger.info("🔄 CHAT FALLBACK: Using non-streaming response...")
                     full_response = get_non_streaming_response(st.session_state.domain_agent, prompt)
-                    st.markdown(full_response)
+                    try:
+                        safe_response = sanitize_markdown_content(full_response)
+                        st.markdown(safe_response)
+                    except Exception as markdown_error:
+                        logger.warning(f"⚠️ Fallback markdown error: {str(markdown_error)}")
+                        st.text(full_response)
                     logger.info("✅ CHAT FALLBACK COMPLETE: Non-streaming response delivered")
                 except Exception as e2:
                     logger.error(f"❌ CHAT ERROR: Failed to generate response - {str(e2)}")
