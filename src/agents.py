@@ -6,19 +6,19 @@ import os
 from openai import AsyncOpenAI
 
 from src.models import Concept, Terminology, Insight, DomainKnowledge
+from src.config import DEFAULT_MODEL, OPENAI_API_KEY
 
 # Set up logging
 logger = logging.getLogger('website-to-agent')
 
-# Initialize OpenAI client with Ollama settings
+# Initialize OpenAI client with official OpenAI endpoints
 client = AsyncOpenAI(
-    base_url=os.getenv("OPENAI_BASE_URL", "http://localhost:11434/v1"),
-    api_key=os.getenv("OPENAI_API_KEY", "ollama")
+    api_key=OPENAI_API_KEY
 )
 
 async def extract_domain_knowledge(content: str, url: str) -> DomainKnowledge:
     """
-    Extract structured domain knowledge from website content using direct OpenAI client.
+    Extract structured domain knowledge from website content using OpenAI.
     
     Args:
         content: The extracted website content (llmstxt or llmsfulltxt)
@@ -75,10 +75,10 @@ Website content to analyze:
 Source: {url}"""
     
     # Run the extraction
-    logger.info("🤖 Running knowledge extraction with Ollama...")
+    logger.info("🤖 Running knowledge extraction with OpenAI...")
     try:
         response = await client.chat.completions.create(
-            model="qwen3:30b",
+            model=DEFAULT_MODEL,
             messages=[
                 {"role": "system", "content": "You are an expert knowledge extractor. Always respond with valid JSON only."},
                 {"role": "user", "content": prompt}
@@ -162,7 +162,7 @@ Source: {url}"""
         )
 
 class DomainAgent:
-    """Simple domain agent that uses direct OpenAI client instead of openai-agents library."""
+    """Simple domain agent that uses OpenAI's official API."""
     
     def __init__(self, domain_knowledge: DomainKnowledge):
         self.domain_knowledge = domain_knowledge
@@ -197,7 +197,7 @@ Provide accurate, insightful responses based on this domain knowledge."""
         """Chat with the domain agent."""
         try:
             response = await client.chat.completions.create(
-                model="qwen3:30b",
+                model=DEFAULT_MODEL,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": message}

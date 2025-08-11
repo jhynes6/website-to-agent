@@ -1,6 +1,6 @@
-how to launch the app: 
+How to launch the app: 
 
-export OPENAI_API_KEY=ollama && export OPENAI_BASE_URL=http://localhost:11434/v1 && python3 -m streamlit run app.py
+export OPENAI_API_KEY=your_openai_api_key_here && streamlit run app.py
 
 
 # WebToAgent
