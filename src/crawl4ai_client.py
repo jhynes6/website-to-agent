@@ -193,45 +193,104 @@ class Crawl4AIClient:
     def extract_website_content(self, url: str, max_urls: int = 5, 
                               output_format: OutputFormat = OutputFormat.MARKDOWN) -> Dict[str, Any]:
         """
-        Extract content from a website
+        Extract content from a website and optionally crawl additional pages
         
         Args:
             url: The website URL to scrape
-            max_urls: Maximum number of pages to scrape (simplified - we'll just scrape the main page)
+            max_urls: Maximum number of pages to scrape from the domain
             output_format: Output format (maintained for compatibility)
             
         Returns:
             Dictionary with extracted content
         """
         try:
-            logger.info(f"🎯 EXTRACT: Starting content extraction for {url}")
+            logger.info(f"🎯 EXTRACT: Starting content extraction for {url} (max_urls: {max_urls})")
             
-            # Scrape the main URL
-            result = self.scraper.scrape_url(url)
+            scraped_urls = []
+            all_content = []
+            base_domain = urlparse(url).netloc
+            urls_to_scrape = [url]
+            scraped_set = set()
             
-            if not result.success:
-                logger.error(f"❌ EXTRACTION FAILED: {result.error}")
+            logger.info(f"🌐 CRAWLING STRATEGY: Will scrape up to {max_urls} pages from domain: {base_domain}")
+            
+            # Scrape pages up to max_urls limit
+            while urls_to_scrape and len(scraped_urls) < max_urls:
+                current_url = urls_to_scrape.pop(0)
+                
+                # Skip if already scraped
+                if current_url in scraped_set:
+                    continue
+                    
+                logger.info(f"📡 SCRAPING ({len(scraped_urls)+1}/{max_urls}): {current_url}")
+                result = self.scraper.scrape_url(current_url)
+                scraped_set.add(current_url)
+                
+                if result.success:
+                    scraped_urls.append(current_url)
+                    content = self._format_content(result, output_format)
+                    all_content.append(f"\n\n=== CONTENT FROM: {current_url} ===\n\n{content}")
+                    logger.info(f"✅ SCRAPED ({len(scraped_urls)}/{max_urls}): {current_url} - {len(content)} chars")
+                    
+                    # Find more internal links if we need more pages
+                    if len(scraped_urls) < max_urls:
+                        try:
+                            soup = BeautifulSoup(result.html, 'html.parser')
+                            links = soup.find_all('a', href=True)
+                            
+                            new_links_found = 0
+                            for link in links:
+                                href = link['href']
+                                # Convert relative URLs to absolute
+                                full_url = urljoin(current_url, href)
+                                parsed_link = urlparse(full_url)
+                                
+                                # Only add links from the same domain
+                                if (parsed_link.netloc == base_domain and 
+                                    full_url not in scraped_set and 
+                                    full_url not in urls_to_scrape and
+                                    not full_url.endswith(('.pdf', '.jpg', '.png', '.gif', '.css', '.js', '.zip'))):
+                                    urls_to_scrape.append(full_url)
+                                    new_links_found += 1
+                            
+                            if new_links_found > 0:
+                                logger.info(f"🔗 DISCOVERED: Found {new_links_found} new internal links to scrape")
+                                
+                        except Exception as link_error:
+                            logger.warning(f"⚠️ LINK EXTRACTION ERROR: {str(link_error)}")
+                    
+                else:
+                    logger.warning(f"⚠️ SKIPPED: Failed to scrape {current_url} - {result.error}")
+            
+            # Combine all content
+            combined_content = "\n".join(all_content)
+            
+            # Log final summary
+            logger.info(f"🎯 CRAWL COMPLETE: Successfully scraped {len(scraped_urls)} pages:")
+            for i, scraped_url in enumerate(scraped_urls, 1):
+                logger.info(f"  {i}. {scraped_url}")
+            
+            if not scraped_urls:
+                logger.error(f"❌ EXTRACTION FAILED: No pages could be scraped")
                 return {
                     'success': False,
-                    'error': result.error,
+                    'error': 'No pages could be scraped successfully',
                     'content': '',
                     'urls_scraped': [],
                     'total_content_length': 0
                 }
             
-            # Format content based on output format
-            content = self._format_content(result, output_format)
-            
-            logger.info(f"✅ EXTRACTION SUCCESS: Extracted {len(content)} chars from {url}")
+            logger.info(f"✅ EXTRACTION SUCCESS: Extracted {len(combined_content)} chars total from {len(scraped_urls)} pages")
             
             return {
                 'success': True,
-                'content': content,
-                'urls_scraped': [url],
-                'total_content_length': len(content),
-                'title': result.title,
-                'description': result.description,
-                'keywords': result.keywords
+                'content': combined_content,
+                'urls_scraped': scraped_urls,
+                'total_content_length': len(combined_content),
+                'pages_scraped': len(scraped_urls),
+                'title': scraped_urls[0] if scraped_urls else url,  # Use first URL as title reference
+                'description': f"Content from {len(scraped_urls)} pages on {base_domain}",
+                'keywords': []  # Keywords not available for multi-page scrapes
             }
             
         except Exception as e:
